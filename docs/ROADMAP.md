@@ -1690,6 +1690,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-http-host-boundary-20261105
 - [x] Select certificate issuers by successful signature verification among matching names, follow self-issued key rollover, and report interrupted chains as incomplete.
       — claimed: Afloat16, branch bugfix/r3.12-certificate-issuer-selection-20261110
+- [x] Distinguish certificate-chain cycles from the 16-link walk limit when explaining why issuer verification stopped (follow-up to #1518).
+      — claimed: Afloat16, branch bugfix/r3.12-certificate-cycle-note-20261110
 - [x] Keep capture flow timestamps in chronological order.
       — claimed: Afloat16, branch bugfix/r3.12-capture-flow-time-range-20261105
 - [x] Reject incomplete simple packet block payloads.
@@ -1759,6 +1761,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-android-script-locale
 - [x] Bound decoded Android string-pool bytes and disclose partial pools in binary XML and resource tables, so shared offsets cannot multiply a small chunk into unbounded retained strings.
       — claimed: Afloat16, branch bugfix/r3.12-android-pool-retained-bytes-20261110
+- [x] Carry incomplete Android manifest decoding into package and component evidence coverage, including the last component page, without substituting ZIP-entry counts for document completeness.
+      — claimed: Afloat16, branch bugfix/r3.12-android-manifest-coverage-20261110
 - [x] Read 16-bit native pointers without consuming adjacent bytes.
       — claimed: Afloat16, branch bugfix/r3.12-binary-pointer
 - [x] Keep same-named imported functions attached to their own library and preserve an explicitly recorded pointer slot.
@@ -1925,6 +1929,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-sbpf-rela
 - [x] Use the sorted section and segment boundaries during source-map position lookups so repeated symbolication visits only matching positions.
       — claimed: Afloat16, branch bugfix/r3.12-source-map-lookup-work
+- [x] Bound generated source-map lines across indexed sections, including empty lines that consume no segment budget.
+      — claimed: Afloat16, branch bugfix/r3.12-sourcemap-line-budget-20261110
 - [x] Parsers refuse what they used to half-read: binary plists keep objects inside their object
       area and reject unrepresentable widths, base64 (plists, source maps) refuses damaged tails
       and incomplete quanta through one shared decoder, OIDs must be minimally encoded, and string

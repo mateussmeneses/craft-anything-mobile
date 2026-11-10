@@ -282,8 +282,8 @@ pub fn verify_chain(certs: &[&[u8]]) -> ChainResult {
     if certs.len() > 64 {
         notes.push("issuer search is limited to the first 64 certificates".into());
     }
-    let walk_limit = certs.len().min(16);
-    for depth in 0..walk_limit {
+    // Inspect the next identity at the boundary without adding or verifying a 17th link.
+    for depth in 0..=16 {
         let Some(parts) = der::certificate_parts(current) else {
             notes.push("a certificate in the chain could not be parsed".into());
             break;
@@ -291,6 +291,10 @@ pub fn verify_chain(certs: &[&[u8]]) -> ChainResult {
         let sha = sha256_hex(current);
         if seen.contains(&sha) {
             notes.push("certificate chain loops; stopped".into());
+            break;
+        }
+        if depth == 16 {
+            notes.push("certificate chain walk limit reached; stopped".into());
             break;
         }
         seen.push(sha.clone());
@@ -332,9 +336,6 @@ pub fn verify_chain(certs: &[&[u8]]) -> ChainResult {
         match issuer_cert {
             Some(ic) => {
                 current = ic;
-                if depth + 1 == walk_limit {
-                    notes.push("certificate chain walk limit reached; stopped".into());
-                }
             }
             _ => break,
         }
@@ -1073,6 +1074,8 @@ mod tests {
         assert!(cycle.links.iter().all(|link| link.signature_verified.is_valid()));
         assert!(!cycle.fully_linked, "{cycle:?}");
         assert!(cycle.trusted_root.is_none());
+        assert!(cycle.notes.iter().any(|note| note.contains("chain loops")), "{cycle:?}");
+        assert!(!cycle.notes.iter().any(|note| note.contains("walk limit")), "{cycle:?}");
 
         let mut certificates = Vec::new();
         for i in 0..18 {
@@ -1091,6 +1094,39 @@ mod tests {
         assert!(bounded.links.iter().all(|link| link.signature_verified.is_valid()));
         assert!(!bounded.fully_linked, "{bounded:?}");
         assert!(bounded.notes.iter().any(|note| note.contains("walk limit")));
+    }
+
+    #[test]
+    fn chain_cycles_at_the_walk_bound_are_distinguished_from_roots() {
+        use craft_anything_testkit::crypto;
+        for cycle in [true, false] {
+            let certificates: Vec<_> = (0..16)
+                .map(|i| {
+                    let issuer = if i < 15 {
+                        i + 1
+                    } else if cycle {
+                        0
+                    } else {
+                        i
+                    };
+                    crypto::make_cert(
+                        &format!("Bound {i}"),
+                        "Fixture Org",
+                        &format!("Bound {issuer}"),
+                        &crypto::p256_spki(),
+                        "1.2.840.10045.4.3.2",
+                        &crypto::p256_sign_sha256,
+                    )
+                })
+                .collect();
+            let refs: Vec<_> = certificates.iter().map(Vec::as_slice).collect();
+            let chain = verify_chain(&refs);
+            assert_eq!(chain.links.len(), 16);
+            assert!(chain.links.iter().all(|link| link.signature_verified.is_valid()));
+            assert_eq!(chain.fully_linked, !cycle, "{chain:?}");
+            assert_eq!(chain.notes.iter().any(|note| note.contains("chain loops")), cycle, "{chain:?}");
+            assert!(!chain.notes.iter().any(|note| note.contains("walk limit")), "{chain:?}");
+        }
     }
 
     #[test]
