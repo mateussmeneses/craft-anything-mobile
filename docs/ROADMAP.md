@@ -1965,6 +1965,7 @@ Owner: open · Status: in progress
       — claimed: mateussmeneses, branch feature/r6.1-android-sdk-check
 - [ ] `adb_emulators_list` and `adb_emulator_start`/`_stop`: start a virtual device through
       `platform::process` (it hands off; see the pitfall on launchers), wait for `sys.boot_completed`
+      — claimed: mateussmeneses, branch feature/r6.1-emulator-tools
 - [ ] Find the SDK's own `aapt2`, `apksigner`, `zipalign` and `bundletool` (an engine table entry
       with a pin for bundletool), so later tools name one lookup
 - [ ] Device profiles as a typed table (resolution, density, API level, ABI, memory) that a check
