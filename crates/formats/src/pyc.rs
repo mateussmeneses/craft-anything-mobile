@@ -82,6 +82,11 @@ pub fn release_for_magic(magic: u16) -> Option<&'static Release> {
     RELEASES.iter().find(|r| (r.first..=r.last).contains(&magic))
 }
 
+/// Header length for a known magic number; unknown releases keep the modern 16-byte form.
+pub(crate) fn header_size(magic: u16) -> usize {
+    release_for_magic(magic).map_or(16, |release| release.header)
+}
+
 /// The release line called this ("3.12").
 pub fn release_named(version: &str) -> Option<&'static Release> {
     RELEASES.iter().find(|r| r.version == version)
@@ -132,7 +137,7 @@ pub fn parse_header(data: &[u8]) -> Result<PycHeader, FormatError> {
     let magic = u16::from_le_bytes([b0, b1]);
     let release = release_for_magic(magic);
     // An unknown number is newer than our table, and every recent release uses the 16-byte form.
-    let size = release.map_or(16, |r| r.header);
+    let size = header_size(magic);
     if data.len() < size {
         return Err(short());
     }
@@ -644,10 +649,11 @@ pub fn read_pyc(data: &[u8]) -> Result<PycFile, FormatError> {
 
 /// A `.pyc` around bare marshalled code: the magic number and a timestamp-style header of zeros.
 pub fn wrap_marshal(magic: u16, marshal: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(marshal.len().saturating_add(16));
+    let header = header_size(magic);
+    let mut out = Vec::with_capacity(marshal.len().saturating_add(header));
     out.extend(magic.to_le_bytes());
     out.extend([0x0d, 0x0a]);
-    out.extend([0u8; 12]);
+    out.resize(header, 0);
     out.extend(marshal);
     out
 }
