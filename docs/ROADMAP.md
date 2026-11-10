@@ -2308,8 +2308,10 @@ Owner: open · Status: in progress
       base APK directly (found by its manifest, not its name)
 - [x] The same for a bundle's base module: its DEX files under `base/dex/`, its manifest and XML
       read as protocol buffers
-- [ ] A bundle's resource table (`resources.pb`, protocol buffers, not `resources.arsc`), and its
-      native libraries and signing in `android_package_show`
+- [x] A bundle's resource table (`resources.pb`) in `android_resources_read` (locales only, of the
+      configuration qualifiers; styles, arrays and plurals listed without their items)
+- [ ] A bundle's other configuration qualifiers and compound values, and its native libraries in
+      `android_package_show`
 - [ ] Check `android_bundle_show` on a real `.aab` (no bundletool or Gradle here to make one) and
       a real `.xapk`
 - [x] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,

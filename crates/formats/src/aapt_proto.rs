@@ -222,6 +222,110 @@ pub fn parse(data: &[u8]) -> Result<Document, FormatError> {
     Ok(doc)
 }
 
+fn varint_field(fs: &[(u64, Field<'_>)], num: u64) -> Option<u64> {
+    fs.iter().find_map(|(n, f)| if let (true, Field::Varint(v)) = (*n == num, f) { Some(*v) } else { None })
+}
+
+/// The id inside a wrapper message (`PackageId`, `TypeId`, `EntryId`: `{ id = 1 }`).
+fn wrapped_id(fs: &[(u64, Field<'_>)], num: u64) -> Result<u32, FormatError> {
+    match message(fs, num) {
+        Some(b) => Ok(varint_field(&fields(b)?, 1).and_then(|v| u32::try_from(v).ok()).unwrap_or(0)),
+        None => Ok(0),
+    }
+}
+
+/// A BCP-47 locale (`es-MX`) in the qualifier form the binary table uses (`es-rMX`).
+fn qualifier_locale(l: &str) -> String {
+    match l.split_once('-') {
+        Some((lang, region)) if region.len() == 2 && region.chars().all(|c| c.is_ascii_alphabetic()) => format!("{lang}-r{}", region.to_ascii_uppercase()),
+        Some((lang, rest)) => format!("b+{lang}+{}", rest.replace('-', "+")),
+        None => l.to_string(),
+    }
+}
+
+/// Read a bundle module's resource table (`resources.pb`, a `ResourceTable` message) into the
+/// same [`Table`](crate::arsc::Table) the binary `resources.arsc` gives. Only the locale of each
+/// value's configuration is read; other qualifiers (density, night mode…) are not, so values that
+/// differ only in those show as `default` more than once. Compound values (styles, arrays,
+/// plurals) are listed without their items.
+pub fn parse_table(data: &[u8], max_entries: usize) -> Result<crate::arsc::Table, FormatError> {
+    use crate::arsc::{Entry, Package, Table, TypeInfo};
+    let mut t = Table::default();
+    // ResourceTable { source_pool = 1; package = 2 }
+    for (n, f) in fields(data)? {
+        let (2, Field::Bytes(pb)) = (n, f) else { continue };
+        // Package { package_id = 1; package_name = 2; type = 3 }
+        let pf = fields(pb)?;
+        let pid = wrapped_id(&pf, 1)?;
+        let pname = string_field(&pf, 2).unwrap_or_default();
+        let mut types = Vec::new();
+        for (tn, tf) in &pf {
+            let (3, Field::Bytes(tb)) = (tn, tf) else { continue };
+            // Type { type_id = 1; name = 2; entry = 3 }
+            let tff = fields(tb)?;
+            let tid = wrapped_id(&tff, 1)?;
+            let tname = string_field(&tff, 2).unwrap_or_default();
+            let mut count = 0u32;
+            let mut configs: Vec<String> = Vec::new();
+            for (en, ef) in &tff {
+                let (3, Field::Bytes(eb)) = (en, ef) else { continue };
+                count = count.saturating_add(1);
+                // Entry { entry_id = 1; name = 2; config_value = 6 }
+                let eff = fields(eb)?;
+                let eid = wrapped_id(&eff, 1)?;
+                let key = string_field(&eff, 2).unwrap_or_default();
+                for (cn, cf) in &eff {
+                    let (6, Field::Bytes(cb)) = (cn, cf) else { continue };
+                    if t.entries.len() >= max_entries {
+                        t.truncated = true;
+                        break;
+                    }
+                    // ConfigValue { config = 1 (Configuration { locale = 3 }); value = 2 }
+                    let cvf = fields(cb)?;
+                    let locale = match message(&cvf, 1) {
+                        Some(c) => string_field(&fields(c)?, 3).map(|l| qualifier_locale(&l)).unwrap_or_default(),
+                        None => String::new(),
+                    };
+                    let config = if locale.is_empty() { "default".to_string() } else { locale.clone() };
+                    if !configs.contains(&config) && configs.len() < 256 {
+                        configs.push(config.clone());
+                    }
+                    // Value { item = 4; compound_value = 5 }
+                    let (value, value_type, raw) = match message(&cvf, 2).map(fields).transpose()? {
+                        Some(vf) => match (message(&vf, 4), message(&vf, 5)) {
+                            (Some(i), _) => {
+                                let (v, r) = item(i)?;
+                                (Some(v), Some(r.type_name()), Some(r))
+                            }
+                            (None, Some(_)) => (None, Some("compound"), None),
+                            _ => (None, None, None),
+                        },
+                        None => (None, None, None),
+                    };
+                    t.entries.push(Entry {
+                        id: format!("{:#010x}", (pid & 0xff) << 24 | (tid & 0xff) << 16 | (eid & 0xffff)),
+                        package: pname.clone(),
+                        type_name: tname.clone(),
+                        key: key.clone(),
+                        config,
+                        locale,
+                        value,
+                        value_type,
+                        parent: None,
+                        bag: Vec::new(),
+                        raw,
+                    });
+                }
+            }
+            types.push(TypeInfo { id: u8::try_from(tid).unwrap_or(0), name: tname, entry_count: count, configs });
+        }
+        let keys = types.iter().map(|t| t.entry_count as usize).sum();
+        t.packages.push(Package { id: pid, name: pname, types, keys, libraries: Vec::new() });
+    }
+    t.warnings.push("read from a bundle's resources.pb: only locales are read from each configuration".into());
+    Ok(t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,6 +412,38 @@ mod tests {
         assert!(m.components[0].exported);
         assert_eq!(m.components[0].intent_filters[0].actions, vec!["android.intent.action.MAIN".to_string()]);
         assert!(!doc.truncated);
+    }
+
+    #[test]
+    fn a_bundle_resource_table_reads_like_a_binary_one() {
+        let id = |v: u64| [key(1, 0), var(v)].concat();
+        let string_item = |t: &str| bytes(4, &bytes(2, &s(1, t)));
+        let config_value = |locale: &str, value: Vec<u8>| bytes(6, &[bytes(1, &s(3, locale)), bytes(2, &value)].concat());
+        let entry = |eid: u64, name: &str, values: Vec<Vec<u8>>| bytes(3, &[bytes(1, &id(eid)), s(2, name), values.concat()].concat());
+        let strings = bytes(
+            3,
+            &[
+                bytes(1, &id(3)),
+                s(2, "string"),
+                entry(0, "app_name", vec![config_value("", string_item("Notes")), config_value("pt-BR", string_item("Notas"))]),
+                entry(1, "title", vec![config_value("fr", bytes(5, b""))]),
+            ]
+            .concat(),
+        );
+        let package = bytes(2, &[bytes(1, &id(0x7f)), s(2, "com.example.app"), strings].concat());
+        let t = parse_table(&package, 100).unwrap();
+        assert_eq!(t.packages[0].types[0].name, "string");
+        assert_eq!(t.packages[0].types[0].entry_count, 2);
+        let e: Vec<(&str, &str, &str, Option<&str>)> =
+            t.entries.iter().map(|e| (e.id.as_str(), e.key.as_str(), e.locale.as_str(), e.value.as_deref())).collect();
+        assert_eq!(
+            e,
+            vec![("0x7f030000", "app_name", "", Some("Notes")), ("0x7f030000", "app_name", "pt-rBR", Some("Notas")), ("0x7f030001", "title", "fr", None)]
+        );
+        assert_eq!(t.entries[2].value_type, Some("compound"));
+        let capped = parse_table(&package, 1).unwrap();
+        assert!(capped.truncated && capped.entries.len() == 1);
+        assert_eq!(qualifier_locale("zh-Hant-TW"), "b+zh+Hant+TW");
     }
 
     #[test]

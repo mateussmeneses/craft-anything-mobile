@@ -1246,19 +1246,25 @@ fn android_resources_read(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     let input = static_input::load(ctx, p.path.as_deref(), MAX_APK)?;
     let is_arsc = input.bytes.get(..2) == Some(&[0x02, 0x00]);
     let pkg = if is_arsc { Pkg { input, zip: None, dexes: Vec::new(), warnings: Vec::new(), module: None } } else { load_pkg(ctx, p.path.as_deref(), false)? };
+    let table_file = if pkg.module.is_some() { "resources.pb" } else { "resources.arsc" };
     let arsc_bytes: Vec<u8> = if is_arsc {
         pkg.input.bytes.to_vec()
     } else {
-        match member(&pkg, "resources.arsc") {
+        match member(&pkg, table_file) {
             Some(Ok(b)) => b,
-            Some(Err(e)) => return Err(ToolError::new(ErrorCode::NotSupported, format!("resources.arsc could not be read: {e}"))),
+            Some(Err(e)) => return Err(ToolError::new(ErrorCode::NotSupported, format!("{table_file} could not be read: {e}"))),
             None => {
-                return Err(ToolError::unsupported(format!("{} has no resources.arsc", pkg.input.name))
+                return Err(ToolError::unsupported(format!("{} has no {table_file}", pkg.input.name))
                     .with_remediation("Some APKs (feature splits, resource-less libraries) carry no compiled resources."));
             }
         }
     };
-    let table = arsc::parse(&arsc_bytes, arsc::Limits::default()).map_err(|e| format_err(e, "an Android resource table"))?;
+    let table = if pkg.module.is_some() {
+        craft_anything_formats::aapt_proto::parse_table(&arsc_bytes, arsc::Limits::default().max_entries)
+            .map_err(|e| format_err(e, "a bundle's resource table"))?
+    } else {
+        arsc::parse(&arsc_bytes, arsc::Limits::default()).map_err(|e| format_err(e, "an Android resource table"))?
+    };
     // The table names the unqualified locale "", people call it "default".
     let named = |l: &str| if l.is_empty() { "default".to_string() } else { l.to_string() };
     let wanted: BTreeSet<&str> = p.locale.iter().chain(&p.only_locales).map(|l| if l == "default" { "" } else { l.as_str() }).collect();
@@ -1475,7 +1481,17 @@ mod tests {
         let z = craft_anything_formats::zip::parse(&apk_bytes, 100).unwrap();
         let dex_entry = z.entries.iter().find(|e| e.name == "classes.dex").unwrap();
         let dex_bytes = craft_anything_formats::zip::read_entry(&apk_bytes, dex_entry, 1 << 24).unwrap();
-        let aab = zip_stored(&[("base/manifest/AndroidManifest.xml", &manifest), ("base/dex/classes.dex", &dex_bytes), ("BundleConfig.pb", b"")]);
+        // resources.pb: one string, app_name = "Bundle Notes".
+        let string_value = field(2, &field(4, &field(2, &field(1, b"Bundle Notes"))));
+        let entry = field(3, &[field(1, &[0x08, 0]), field(2, b"app_name"), field(6, &string_value)].concat());
+        let ty = field(3, &[field(1, &[0x08, 1]), field(2, b"string"), entry].concat());
+        let table = field(2, &[field(1, &[0x08, 0x7f]), field(2, b"com.example.bundle"), ty].concat());
+        let aab = zip_stored(&[
+            ("base/manifest/AndroidManifest.xml", &manifest),
+            ("base/dex/classes.dex", &dex_bytes),
+            ("base/resources.pb", &table),
+            ("BundleConfig.pb", b""),
+        ]);
         let path = craft_anything_testkit::temp_file("notes.aab", &aab).to_string_lossy().into_owned();
         let e = Engine::new(crate::testing::session());
         let v = call(&e, "android_package_show", json!({"path": path}));
@@ -1486,6 +1502,8 @@ mod tests {
         let c = call(&e, "android_classes_find", json!({"path": path, "query": "notes"}));
         let single = call(&e, "android_classes_find", json!({"path": apk(), "query": "notes"}));
         assert_eq!(c["result"]["total"], single["result"]["total"]);
+        let r = call(&e, "android_resources_read", json!({"path": path}));
+        assert!(r["result"].to_string().contains("Bundle Notes"), "{}", r["result"]);
     }
 
     #[test]
