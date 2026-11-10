@@ -121,6 +121,9 @@ pub const TOOLS: &[&str] = &[
     "runtime_captures_compare",
     // A phone, its screen and its list of apps, without reading inside them.
     "adb_devices_find",
+    "adb_emulators_list",
+    "adb_emulator_start",
+    "adb_emulator_stop",
     "adb_device_show",
     "adb_display_show",
     "adb_screenshot_take",

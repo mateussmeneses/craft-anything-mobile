@@ -1054,6 +1054,7 @@ Start a GDB session	啟動 GDB 工作階段
 Start a Rizin debug session	啟動 Rizin 偵錯工作階段
 Start a rebuild	開始重建
 Start a stand-in backend	啟動替代後端
+Start a virtual device	啟動虛擬裝置
 Start an activity	啟動 Activity
 Start building	開始建置
 Start from them	以這些檔案為起點
@@ -1066,6 +1067,7 @@ Stop	停止
 Stop a pinned build	停止釘選的建置
 Stop a rebuild	停止重建
 Stop a stand-in backend	停止替代後端
+Stop a virtual device	停止虛擬裝置
 Stop generated assets	停止產生素材
 Stop listing {folder}	不再列出 {folder}
 Stopped here	停在這裡
@@ -1192,6 +1194,7 @@ Use this	使用此項
 Use {name}	使用 {name}
 Value flow	值流向
 Version	版本
+Virtual devices	虛擬裝置
 Waiting	等待中
 Waiting for another build to finish: this one starts next.	等待另一個建置完成：接下來就會開始。
 Waiting for other builds to finish: {n} in line.	正在等候其他建置完成：佇列中有 {n} 項。

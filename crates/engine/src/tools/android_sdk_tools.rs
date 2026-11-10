@@ -43,15 +43,23 @@ struct SdkCheckParams {
     avd_home: Option<PathBuf>,
 }
 
-fn engines_android_sdk_check(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    let p: SdkCheckParams = parse_params(params)?;
-    let settings = &ctx.session.settings;
+/// Where this session looks for an SDK and its virtual devices: the folders given, the configured
+/// adb's own SDK, and (unless the session finds only configured engines) this computer's
+/// environment and usual folders.
+pub(crate) fn places(session: &crate::Session, sdk_root: Option<PathBuf>, avd_home: Option<PathBuf>) -> Places {
+    let settings = &session.settings;
     let mut places = if settings.engines.only_configured { Places::default() } else { Places::here() };
     places.adb = settings.engine_path("adb");
-    places.given = p.sdk_root.clone();
-    if let Some(home) = &p.avd_home {
-        places.avd_homes = vec![home.clone()];
+    places.given = sdk_root;
+    if let Some(home) = avd_home {
+        places.avd_homes = vec![home];
     }
+    places
+}
+
+fn engines_android_sdk_check(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: SdkCheckParams = parse_params(params)?;
+    let places = places(ctx.session, p.sdk_root.clone(), p.avd_home.clone());
 
     let sdk = android_sdk::find(&places);
     let avds = android_sdk::find_avds(&places.avd_homes);

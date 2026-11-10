@@ -1054,6 +1054,7 @@ Start a GDB session	Alusta GDB seanssi
 Start a Rizin debug session	Alusta Rizini silumisseanssi
 Start a rebuild	Alusta taasehitust
 Start a stand-in backend	Käivita asendustaustarakendus
+Start a virtual device	Käivita virtuaalseade
 Start an activity	Käivita tegevus
 Start building	Alusta ehitamist
 Start from them	Alusta nendega
@@ -1066,6 +1067,7 @@ Stop	Peata
 Stop a pinned build	Peata kinnitatud ehitus
 Stop a rebuild	Peata taasehitus
 Stop a stand-in backend	Peata asendustaustarakendus
+Stop a virtual device	Peata virtuaalseade
 Stop generated assets	Peata genereeritud varad
 Stop listing {folder}	Lõpeta {folder} loetlemine
 Stopped here	Peatus siin
@@ -1192,6 +1194,7 @@ Use this	Kasuta seda
 Use {name}	Kasuta {name}
 Value flow	Väärtuste voog
 Version	Versioon
+Virtual devices	Virtuaalseadmed
 Waiting	Ootab
 Waiting for another build to finish: this one starts next.	Ootab teise ehituse lõppu: see algab järgmisena.
 Waiting for other builds to finish: {n} in line.	Ootab teiste ehituste lõppu: {n} järjekorras.

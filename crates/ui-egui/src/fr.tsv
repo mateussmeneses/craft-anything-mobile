@@ -146,6 +146,7 @@ Check the asset keys	Vérifier les clés de ressources
 Save the key	Enregistrer la clé
 Forget the key	Oublier la clé
 Allow generated assets	Autoriser les ressources générées
+Stop a virtual device	Arrêter un appareil virtuel
 Stop generated assets	Arrêter les ressources générées
 Paste your {name} key	Collez votre clé {name}
 Generate custom pictures and models	Générer des images et des modèles sur mesure
@@ -441,6 +442,7 @@ just now	à l'instant
 {n} h ago	il y a {n} h
 {n} days ago	il y a {n} jours
 Needs you	Vous attend
+Virtual devices	Appareils virtuels
 Waiting	En attente
 Interrupted	Interrompu
 Rename the project	Renommer le projet
@@ -1324,6 +1326,7 @@ Start a GDB session	Démarrer une session GDB
 Start a Rizin debug session	Démarrer une session de débogage Rizin
 Start a rebuild	Démarrer une reconstruction
 Start a stand-in backend	Démarrer un backend de remplacement
+Start a virtual device	Démarrer un appareil virtuel
 Start an activity	Démarrer une activité
 Stop a pinned build	Arrêter une construction épinglée
 Stop a rebuild	Arrêter une reconstruction

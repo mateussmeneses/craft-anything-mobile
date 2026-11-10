@@ -1054,6 +1054,7 @@ Start a GDB session	เริ่มเซสชัน GDB
 Start a Rizin debug session	เริ่มเซสชันดีบัก Rizin
 Start a rebuild	เริ่มสร้างใหม่
 Start a stand-in backend	เริ่มแบ็กเอนด์ทดแทน
+Start a virtual device	เริ่มอุปกรณ์เสมือน
 Start an activity	เริ่ม activity
 Start building	เริ่มสร้าง
 Start from them	เริ่มจากไฟล์เหล่านี้
@@ -1066,6 +1067,7 @@ Stop	หยุด
 Stop a pinned build	หยุดบิลด์ที่ปักหมุด
 Stop a rebuild	หยุดการสร้างใหม่
 Stop a stand-in backend	หยุดแบ็กเอนด์ทดแทน
+Stop a virtual device	หยุดอุปกรณ์เสมือน
 Stop generated assets	หยุดสร้างแอสเซ็ต
 Stop listing {folder}	หยุดแสดงรายการ {folder}
 Stopped here	หยุดตรงนี้
@@ -1192,6 +1194,7 @@ Use this	ใช้สิ่งนี้
 Use {name}	ใช้ {name}
 Value flow	การไหลของค่า
 Version	เวอร์ชัน
+Virtual devices	อุปกรณ์เสมือน
 Waiting	กำลังรอ
 Waiting for another build to finish: this one starts next.	รอบิลด์อื่นเสร็จ: บิลด์นี้จะเริ่มถัดไป
 Waiting for other builds to finish: {n} in line.	รอบิลด์อื่นเสร็จ: คิวที่ {n}

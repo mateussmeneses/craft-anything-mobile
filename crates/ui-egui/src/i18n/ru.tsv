@@ -1051,6 +1051,7 @@ Start a GDB session	Запустить сессию GDB
 Start a Rizin debug session	Запустить отладочную сессию Rizin
 Start a rebuild	Запустить пересборку
 Start a stand-in backend	Запустить подставной бэкенд
+Start a virtual device	Запустить виртуальное устройство
 Start an activity	Запустить активность
 Start building	Начать сборку
 Start from them	Начать с них
@@ -1063,6 +1064,7 @@ Stop	Остановить
 Stop a pinned build	Остановить закреплённую сборку
 Stop a rebuild	Остановить пересборку
 Stop a stand-in backend	Остановить подставной бэкенд
+Stop a virtual device	Остановить виртуальное устройство
 Stop generated assets	Остановить генерируемые ресурсы
 Stop listing {folder}	Остановить список {folder}
 Stopped here	Остановлено здесь
@@ -1192,6 +1194,7 @@ Use this	Использовать это
 Use {name}	Использовать {name}
 Value flow	Поток значений
 Version	Версия
+Virtual devices	Виртуальные устройства
 Waiting	Ожидание
 Waiting for another build to finish: this one starts next.	Ожидание завершения другой сборки: эта начнётся следующей.
 Waiting for other builds to finish: {n} in line.	Ожидание завершения других сборок: {n} в очереди.

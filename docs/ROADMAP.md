@@ -652,7 +652,8 @@ yet, and the quick start is how every new person begins.
       responsive (only a stand-in server so far)
 - [x] Vineflower: run it once on a real JAR (no Java on the machine it was written on)
       — claimed: hasnain607, branch docs/r5.7-vineflower-live-run
-- [ ] Verify the 23 unverified adb tools; record results in tool-status.md
+- [ ] Verify the adb tools still unverified (`adb_app_install`, `adb_app_remove`,
+      `adb_bugreport_save`) and all of them on a physical phone; 20 ran on an emulator (R6.3)
 - [ ] Android locales: try `only_locales` on a real APK (only the test fixture so far)
 - [ ] `app_graphs_compare` on the two real Electron releases again, to count how many of the
       162 "removed" now pair (and pair the `index-<hash>` chunks by structure if many stay)
@@ -1963,7 +1964,7 @@ Owner: open · Status: in progress
       build tools, platforms, NDKs, command-line tools, emulator, system images and the virtual
       devices with their screen, density, ABI and memory, read from folders only
       — claimed: mateussmeneses, branch feature/r6.1-android-sdk-check
-- [ ] `adb_emulators_list` and `adb_emulator_start`/`_stop`: start a virtual device through
+- [x] `adb_emulators_list` and `adb_emulator_start`/`_stop`: start a virtual device through
       `platform::process` (it hands off; see the pitfall on launchers), wait for `sys.boot_completed`
       — claimed: mateussmeneses, branch feature/r6.1-emulator-tools
 - [ ] Find the SDK's own `aapt2`, `apksigner`, `zipalign` and `bundletool` (an engine table entry
@@ -1990,7 +1991,10 @@ Owner: open · Status: todo
 - [ ] `adb_walkthrough_record`: a named sequence of steps with a picture and a control tree after
       each, saved so a check can replay it
 - [ ] App state: current activity, back stack, permissions granted
-- [ ] Verify the 23 unverified adb tools on the emulator (shared with R5.7)
+- [x] Verify the unverified adb tools on the emulator (shared with R5.7): 20 ran on Android 17
+      (API 37, x86_64); see tool-status.md
+- [ ] Verify the three that are left: `adb_app_install` and `adb_app_remove` (they need an APK we
+      built ourselves) and `adb_bugreport_save`; and run the adb tools on a physical phone
 
 ### R6.4 Android apps as a kind to make
 Owner: maintainers · Status: todo

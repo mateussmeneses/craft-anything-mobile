@@ -1054,6 +1054,7 @@ Start a GDB session	Bắt đầu một phiên GDB
 Start a Rizin debug session	Bắt đầu một phiên gỡ lỗi Rizin
 Start a rebuild	Bắt đầu dựng lại
 Start a stand-in backend	Khởi động một backend thay thế
+Start a virtual device	Khởi động thiết bị ảo
 Start an activity	Bắt đầu một hoạt động
 Start building	Bắt đầu xây dựng
 Start from them	Bắt đầu từ đó
@@ -1066,6 +1067,7 @@ Stop	Dừng
 Stop a pinned build	Dừng một bản dựng đã ghim
 Stop a rebuild	Dừng việc dựng lại
 Stop a stand-in backend	Dừng một backend thay thế
+Stop a virtual device	Dừng thiết bị ảo
 Stop generated assets	Dừng các tài nguyên được tạo
 Stop listing {folder}	Ngừng liệt kê {folder}
 Stopped here	Đã dừng tại đây
@@ -1192,6 +1194,7 @@ Use this	Dùng cái này
 Use {name}	Dùng {name}
 Value flow	Luồng giá trị
 Version	Phiên bản
+Virtual devices	Thiết bị ảo
 Waiting	Đang chờ
 Waiting for another build to finish: this one starts next.	Đang chờ một bản dựng khác xong: bản này sẽ bắt đầu tiếp theo.
 Waiting for other builds to finish: {n} in line.	Đang chờ các bản dựng khác xong: còn {n} đang xếp hàng.

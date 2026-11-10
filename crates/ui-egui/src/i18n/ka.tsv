@@ -1068,6 +1068,7 @@ Start a GDB session	GDB-ის სესიის დაწყება
 Start a Rizin debug session	Rizin-ის გამართვის სესიის დაწყება
 Start a rebuild	ხელახალი აწყობის დაწყება
 Start a stand-in backend	შემცვლელი ბექენდის გაშვება
+Start a virtual device	ვირტუალური მოწყობილობის გაშვება
 Start an activity	აქტივობის გაშვება
 Start building	აწყობის დაწყება
 Start from them	მათით დაწყება
@@ -1080,6 +1081,7 @@ Stop	შეწყვეტა
 Stop a pinned build	მიმაგრებული აწყობის შეწყვეტა
 Stop a rebuild	ხელახალი აწყობის შეწყვეტა
 Stop a stand-in backend	შემცვლელი ბექენდის შეწყვეტა
+Stop a virtual device	ვირტუალური მოწყობილობის გაჩერება
 Stop generated assets	რესურსების გენერირების შეწყვეტა
 Stop listing {folder}	{folder}-ის სიაში ჩვენების შეწყვეტა
 Stopped here	აქ შეჩერდა
@@ -1209,6 +1211,7 @@ Use {name}	{name}-ის გამოყენება
 Value flow	მნიშვნელობების ნაკადი
 Version	ვერსია
 View	ხედი
+Virtual devices	ვირტუალური მოწყობილობები
 Waiting	ელოდება
 Waiting for another build to finish: this one starts next.	სხვა აწყობის დასრულების მოლოდინი: ეს შემდეგი დაიწყება.
 Waiting for other builds to finish: {n} in line.	სხვა აწყობების დასრულების მოლოდინი: რიგში: {n}.

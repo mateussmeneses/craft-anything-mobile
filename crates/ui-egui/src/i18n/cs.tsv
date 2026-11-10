@@ -1054,6 +1054,7 @@ Start a GDB session	Zahájit relaci GDB
 Start a Rizin debug session	Zahájit ladicí relaci Rizin
 Start a rebuild	Zahájit rekonstrukci
 Start a stand-in backend	Spustit náhradní backend
+Start a virtual device	Spustit virtuální zařízení
 Start an activity	Spustit aktivitu
 Start building	Zahájit sestavení
 Start from them	Vycházet z nich
@@ -1066,6 +1067,7 @@ Stop	Zastavit
 Stop a pinned build	Zastavit připnuté sestavení
 Stop a rebuild	Zastavit rekonstrukci
 Stop a stand-in backend	Zastavit náhradní backend
+Stop a virtual device	Zastavit virtuální zařízení
 Stop generated assets	Zakázat generované podklady
 Stop listing {folder}	Přestat zobrazovat {folder}
 Stopped here	Zastaveno zde
@@ -1192,6 +1194,7 @@ Use this	Použít toto
 Use {name}	Použít {name}
 Value flow	Tok hodnot
 Version	Verze
+Virtual devices	Virtuální zařízení
 Waiting	Čeká
 Waiting for another build to finish: this one starts next.	Čeká na dokončení jiného sestavení: toto je další na řadě.
 Waiting for other builds to finish: {n} in line.	Čeká na dokončení jiných sestavení; pořadí ve frontě: {n}.

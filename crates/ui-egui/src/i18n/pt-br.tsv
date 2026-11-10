@@ -1054,6 +1054,7 @@ Start a GDB session	Iniciar uma sessão GDB
 Start a Rizin debug session	Iniciar uma sessão de depuração Rizin
 Start a rebuild	Iniciar uma recriação
 Start a stand-in backend	Iniciar um backend substituto
+Start a virtual device	Iniciar um dispositivo virtual
 Start an activity	Iniciar uma atividade
 Start building	Começar a criar
 Start from them	Usar como ponto de partida
@@ -1066,6 +1067,7 @@ Stop	Parar
 Stop a pinned build	Parar uma versão fixada
 Stop a rebuild	Parar uma recriação
 Stop a stand-in backend	Parar um backend substituto
+Stop a virtual device	Parar um dispositivo virtual
 Stop generated assets	Interromper a geração de recursos
 Stop listing {folder}	Parar de listar {folder}
 Stopped here	Parou aqui
@@ -1192,6 +1194,7 @@ Use this	Usar esta opção
 Use {name}	Usar {name}
 Value flow	Fluxo de valores
 Version	Versão
+Virtual devices	Dispositivos virtuais
 Waiting	Aguardando
 Waiting for another build to finish: this one starts next.	Aguardando outra criação terminar: esta será a próxima.
 Waiting for other builds to finish: {n} in line.	Aguardando outras criações terminarem: {n} na fila.

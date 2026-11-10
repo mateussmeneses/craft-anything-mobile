@@ -1054,6 +1054,7 @@ Start a GDB session	Bir GDB oturumu başlat
 Start a Rizin debug session	Bir Rizin hata ayıklama oturumu başlat
 Start a rebuild	Yeniden derleme başlat
 Start a stand-in backend	Bir yedek arka uç başlat
+Start a virtual device	Sanal cihazı başlat
 Start an activity	Bir etkinlik başlat
 Start building	Derlemeye başla
 Start from them	Onlardan başla
@@ -1066,6 +1067,7 @@ Stop	Durdur
 Stop a pinned build	Sabitlenmiş bir derlemeyi durdur
 Stop a rebuild	Yeniden derlemeyi durdur
 Stop a stand-in backend	Yedek arka ucu durdur
+Stop a virtual device	Sanal cihazı durdur
 Stop generated assets	Üretilen varlıkları durdur
 Stop listing {folder}	{folder} listelemesini durdur
 Stopped here	Burada durdu
@@ -1192,6 +1194,7 @@ Use this	Bunu kullan
 Use {name}	{name} kullan
 Value flow	Değer akışı
 Version	Sürüm
+Virtual devices	Sanal cihazlar
 Waiting	Bekliyor
 Waiting for another build to finish: this one starts next.	Başka bir derlemenin bitmesini bekliyor: bu ondan sonra başlayacak.
 Waiting for other builds to finish: {n} in line.	Diğer derlemelerin bitmesini bekliyor: sırada {n} tane.

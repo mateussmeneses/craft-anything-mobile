@@ -1054,6 +1054,7 @@ Start a GDB session	GDB 세션 시작
 Start a Rizin debug session	Rizin 디버그 세션 시작
 Start a rebuild	다시 만들기 시작
 Start a stand-in backend	대역 서버 시작
+Start a virtual device	가상 기기 시작
 Start an activity	액티비티 시작
 Start building	만들기 시작
 Start from them	이 파일에서 시작
@@ -1066,6 +1067,7 @@ Stop	중지
 Stop a pinned build	고정한 빌드 중지
 Stop a rebuild	다시 만들기 중지
 Stop a stand-in backend	대역 서버 중지
+Stop a virtual device	가상 기기 중지
 Stop generated assets	에셋 생성 중지
 Stop listing {folder}	{folder} 목록에서 빼기
 Stopped here	여기서 멈춤
@@ -1192,6 +1194,7 @@ Use this	이것 사용
 Use {name}	{name} 사용
 Value flow	값 흐름
 Version	버전
+Virtual devices	가상 기기
 Waiting	대기 중
 Waiting for another build to finish: this one starts next.	다른 빌드가 끝나기를 기다리는 중입니다. 이 빌드가 다음 차례입니다.
 Waiting for other builds to finish: {n} in line.	다른 빌드가 끝나기를 기다리는 중입니다. {n}번째 차례입니다.

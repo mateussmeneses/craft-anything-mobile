@@ -21,7 +21,7 @@ we don't have); source reviewed · **New** = added since the audit, unit-tested 
 | Managed (.NET) | 7 | 0 | 0 | 0 | no C# decompiler (IL + structure only) |
 | Java | 6 | 0 | 0 | 0 | `java_vineflower_decompile` verified on a real JAR (Commons IO 2.16.1, OpenJDK 21.0.12.1, Linux) |
 | Android (static) | 9 | 0 | 0 | 4 | JADX/Apktool/JEB paths unverified |
-| Android device (adb) | 2 | 0 | 0 | 23 | no device attached |
+| Android device (adb) | 22 | 0 | 0 | 3 | 20 verified on an emulator on 2026-11-10 (below); install, remove and bug report not run; no physical phone |
 | Apple | 8 | 0 | 0 | 6 | synthetic Mach-O/plist only; runtime tools macOS-only, except `runtime_ui_read` and `runtime_ui_walkthrough_record`, which also read and drive Windows apps (UI Automation; tested against a WinForms window) |
 | Formats, firmware, database | 11 | 0 | 0 | 1 | |
 | Runtime (process capture, native calls/UI) | 0 | 0 | 0 | 5 | run foreign code; not executed in the audit |
@@ -86,6 +86,24 @@ Fixed:
   253 source files, exit 0. `org.apache.commons.io.FileUtils` came back at 1,350 lines, and the
   class and its file-reading methods are present. Not checked: Windows, macOS, a `.class` input,
   or a second JAR.
+- Android device tools on an emulator (2026-11-10, Windows 11, Android 17 / API 37, x86_64,
+  through the CLI): `adb_devices_find`, `adb_device_show` (553 properties), `adb_apps_list` (260
+  packages; 0 third-party), `adb_apps_find`, `adb_app_show`, `adb_log_read`,
+  `adb_running_processes_list` (331), `adb_folder_list`, `adb_device_features_list` (98),
+  `adb_system_services_list` (324), `adb_display_show`, `adb_window_show` (the focused window
+  named the app just launched), `adb_setting_get`, `adb_screenshot_take` (a 1080 x 2400 PNG),
+  `adb_app_download`, `adb_file_upload` and `adb_file_download` (the file came back with the same
+  text), `adb_app_launch`, `adb_activity_open`, `adb_app_force_stop`. **Verified**. `adb_log_read`
+  with `count` 200 returned 270 lines: logcat counts entries, and an entry can span lines.
+  **Unverified**: `adb_app_install`, `adb_app_remove`, `adb_bugreport_save`, and every tool on a
+  physical phone.
+- Virtual devices (`adb_emulators_list`, `adb_emulator_start`, `adb_emulator_stop`): **New**. Run
+  on Windows 11 with emulator 36.6.11: the list named the device and, once started, its serial
+  and finished boot; start (`no_window`) returned after a 30 s boot with serial `emulator-5554`,
+  and the emulator outlived the CLI; a second start reported it already running; stop without
+  consent and stop of a phone's serial were refused; after stop adb listed no device and no
+  emulator process was left. Not checked: macOS, Linux, a windowed start, `cold_boot`, a boot
+  that outlasts the wait, or an emulator that fails to start (fixtures cover the refusals only).
 - Android SDK check (`engines_android_sdk_check`): **New**. Run on Windows 11 against a real SDK
   found through the adb on PATH: 4 build tools, 4 platforms, 2 NDKs, command-line tools, emulator,
   one system image and one virtual device, each matching the folders and `config.ini` on disk.

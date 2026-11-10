@@ -889,6 +889,12 @@ is the problem, not the input. Every Python step names a script file.
 as a process id, so the script quit at once and both of its tests failed in CI. Try a `/bin/sh`
 script with `dash` (or `checkbashisms`) as well as bash, and keep to what both accept.
 
+**A device path rewritten by the shell.** A live check of the adb tools from Git Bash passed
+`--device-path /sdcard`; the shell turned it into `C:/Program Files/Git/sdcard` before the program
+saw it, and three tools looked broken ("not a valid device path"). When a live run from Git Bash
+passes a path meant for another system, set `MSYS_NO_PATHCONV=1`, and read a refusal's quoted
+value before blaming the tool.
+
 **A search that ran no search.** `timeout 40 find … 2>/dev/null` on a Mac: there's no `timeout` there,
 the error went to `/dev/null`, and the empty result read as "no such files on this computer". Don't
 hide a command's errors when an empty result means something; set the time limit on the tool call.
