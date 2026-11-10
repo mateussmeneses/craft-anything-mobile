@@ -34,6 +34,8 @@ pub struct Demangled {
 #[derive(Debug, Clone, PartialEq)]
 enum N {
     Ident(String),
+    /// A private declaration's name with its file discriminator, as printed: `(name in _ABC…)`.
+    Private(String),
     Module(String),
     Nominal {
         kind: char,
@@ -207,7 +209,9 @@ impl<'a> D<'a> {
 
     fn pop_type(&mut self) -> R<N> {
         match self.pop()? {
-            N::Ident(_) | N::EmptyList | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } => Err("expected a type".into()),
+            N::Ident(_) | N::Private(_) | N::EmptyList | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } => {
+                Err("expected a type".into())
+            }
             N::Module(m) => Err(format!("expected a type, found module {m}")),
             other => Ok(other),
         }
@@ -231,7 +235,8 @@ impl<'a> D<'a> {
     /// One protocol of a protocol list (`…_p`): a context and a name, with no `P` kind letter and
     /// no substitution slot of its own, or a type such as a standard protocol (`SH`).
     fn pop_protocol(&mut self) -> R<N> {
-        if let Some(N::Ident(name)) = self.pop_if(|n| matches!(n, N::Ident(_))) {
+        if matches!(self.stack.last(), Some(N::Ident(_) | N::Private(_))) {
+            let name = self.pop_decl_name()?;
             let ctx = self.pop_context()?;
             return Ok(N::Nominal { kind: 'P', ctx: Box::new(ctx), name });
         }
@@ -433,7 +438,9 @@ impl<'a> D<'a> {
     fn pop_params(&mut self) -> R<N> {
         match self.pop()? {
             N::EmptyList => Ok(N::Tuple(Vec::new())),
-            N::Ident(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_) => Err("expected parameter types".into()),
+            N::Ident(_) | N::Private(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_) => {
+                Err("expected parameter types".into())
+            }
             other => Ok(other),
         }
     }
@@ -495,7 +502,7 @@ impl<'a> D<'a> {
     fn shape_ok(&self, top_func: bool, need_name: bool) -> bool {
         let st = &self.stack;
         let at = |i: usize| i.checked_sub(1).and_then(|j| st.get(j));
-        let typeish = |n: Option<&N>| matches!(n, Some(n) if !matches!(n, N::Ident(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_)));
+        let typeish = |n: Option<&N>| matches!(n, Some(n) if !matches!(n, N::Ident(_) | N::Private(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_)));
         let mut i = st.len();
         if matches!(at(i), Some(N::Sig { .. })) {
             i -= 1;
@@ -539,7 +546,7 @@ impl<'a> D<'a> {
             }
         }
         if need_name {
-            if !matches!(at(i), Some(N::Ident(_))) {
+            if !matches!(at(i), Some(N::Ident(_) | N::Private(_))) {
                 return false;
             }
             i -= 1;
@@ -577,6 +584,44 @@ impl<'a> D<'a> {
         Ok(Some(a))
     }
 
+    /// `w` and two letters: one value witness function of a type, the code the runtime calls to
+    /// copy, move, destroy or read the enum tag of a value of that type. The operand must be a
+    /// whole type; a module, a name, a member or another global before it is not one.
+    fn value_witness(&mut self) -> R<()> {
+        let name = match (self.next()?, self.next()?) {
+            (b'a', b'l') => "allocateBuffer",
+            (b'c', b'a') => "assignWithCopy",
+            (b'c', b'p') => "initializeWithCopy",
+            (b'd', b'e') => "deallocateBuffer",
+            (b'e', b't') => "getEnumTagSinglePayload",
+            (b'p', b'r') => "projectBuffer",
+            (b's', b't') => "storeEnumTagSinglePayload",
+            (b't', b'a') => "assignWithTake",
+            (b't', b'k') => "initializeWithTake",
+            (b't', b'T') => "initializeArrayWithTakeBackToFront",
+            (b'u', b'g') => "getEnumTag",
+            (b'u', b'i') => "destructiveInjectEnumTag",
+            (b'u', b'p') => "destructiveProjectEnumData",
+            (b'x', b'g') => "getExtraInhabitantIndex",
+            (b'x', b's') => "storeExtraInhabitant",
+            (b'x', b'x') => "destroy",
+            (b'C', b'c') => "initializeArrayWithCopy",
+            (b'C', b'p') => "initializeBufferWithCopy",
+            (b'C', b'P') => "initializeBufferWithCopyOfBuffer",
+            (b'T', b'k') => "initializeBufferWithTake",
+            (b'T', b't') => "initializeArrayWithTakeFrontToBack",
+            (b'T', b'K') => "initializeBufferWithTakeOfBuffer",
+            (b'X', b'x') => "destroyArray",
+            (b'X', b'X') => "destroyBuffer",
+            _ => return Err("unsupported value witness kind".into()),
+        };
+        if matches!(self.stack.last(), Some(N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. })) {
+            return Err("value witness of a non-type".into());
+        }
+        let ty = self.pop_type()?;
+        self.push(N::Global { prefix: format!("{name} value witness for"), inner: Box::new(ty), suffix: String::new() })
+    }
+
     /// An addressor: `a` (mutable) or `l`, then a letter for its kind.
     fn addressor(&mut self) -> R<&'static str> {
         let mutable = self.next()? == b'a';
@@ -597,7 +642,7 @@ impl<'a> D<'a> {
         let module = self.pop_context()?;
         let proto = match self.pop()? {
             n @ N::Nominal { kind: 'P', .. } => n,
-            N::Ident(name) => {
+            N::Ident(name) | N::Private(name) => {
                 let ctx = self.pop_context()?;
                 N::Nominal { kind: 'P', ctx: Box::new(ctx), name }
             }
@@ -624,6 +669,22 @@ impl<'a> D<'a> {
 
     fn note_param(&mut self, idx: u64) {
         self.max_param = Some(self.max_param.map_or(idx, |m| m.max(idx)));
+    }
+
+    /// The name of a declaration: an identifier, or a private name built by `LL`.
+    fn pop_decl_name(&mut self) -> R<String> {
+        match self.pop()? {
+            N::Ident(i) | N::Private(i) => Ok(i),
+            _ => Err("expected a name".into()),
+        }
+    }
+
+    /// `LL`: a private declaration's name, then the discriminator of the file that declares it.
+    /// Both are identifiers and keep their substitution slots; the pair takes none of its own.
+    fn private_name(&mut self) -> R<()> {
+        let discriminator = self.pop_name()?;
+        let name = self.pop_name()?;
+        self.push(N::Private(format!("({name} in {discriminator})")))
     }
 
     fn operator(&mut self) -> R<()> {
@@ -659,7 +720,7 @@ impl<'a> D<'a> {
                 self.push(N::Builtin(t))
             }
             b'C' | b'V' | b'O' | b'P' | b'a' => {
-                let name = self.pop_name()?;
+                let name = self.pop_decl_name()?;
                 let ctx = self.pop_context()?;
                 let n = N::Nominal { kind: char::from(c), ctx: Box::new(ctx), name };
                 self.add_sub(&n)?;
@@ -679,7 +740,7 @@ impl<'a> D<'a> {
             b'F' => {
                 let ty = self.pop_entity_type(true)?;
                 let labels = self.pop_labels(Self::param_count(&ty))?;
-                let name = self.pop_name()?;
+                let name = self.pop_decl_name()?;
                 let ctx = self.pop_context()?;
                 self.push(N::Entity {
                     kind: EKind::Func,
@@ -709,8 +770,13 @@ impl<'a> D<'a> {
                 self.push(n)
             }
             b'K' => self.push(N::Throws),
+            b'L' => match self.next()? {
+                b'L' => self.private_name(),
+                k => Err(format!("unsupported operator 'L{}'", char::from(k))),
+            },
             b'M' => {
-                let p = match self.next()? {
+                let kind = self.next()?;
+                let p = match kind {
                     b'a' => "type metadata accessor for",
                     b'n' => "nominal type descriptor for",
                     b'N' => "type metadata for",
@@ -718,7 +784,8 @@ impl<'a> D<'a> {
                     b'f' => "full type metadata for",
                     b'p' => "protocol descriptor for",
                     b'o' => "class metadata base offset for",
-                    b'l' | b'L' => "lazy cache variable for type metadata for",
+                    b'l' => "type metadata singleton initialization cache for",
+                    b'L' => "lazy cache variable for type metadata for",
                     b'r' => "type metadata completion function for",
                     b'i' => "type metadata instantiation function for",
                     b'I' => "type metadata instantiation cache for",
@@ -728,18 +795,46 @@ impl<'a> D<'a> {
                     b'j' => "module descriptor",
                     b'X' => "extension descriptor for",
                     b'z' => "type metadata heap reference for",
+                    b'K' => "metadata instantiation cache for",
+                    b'D' => "demangling cache variable for type metadata for",
+                    b'F' => "reflection metadata field descriptor",
+                    b'A' => "reflection metadata associated type descriptor",
+                    b'P' => "generic type metadata pattern for",
+                    b'B' => "reflection metadata builtin descriptor",
+                    b'U' => "ObjC metadata update function for",
+                    b't' => "full ObjC resilient class stub for",
+                    b's' => "ObjC resilient class stub for",
                     _ => return Err("unsupported metadata kind".into()),
                 };
+                // These describe one type, so the operand must be a whole type, as for a value
+                // witness: a module, a function, a conformance or another global is not one.
+                if matches!(kind, b'D' | b'F' | b'P' | b'B' | b'U' | b't' | b's') {
+                    if matches!(self.stack.last(), Some(N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. })) {
+                        return Err("metadata of a non-type".into());
+                    }
+                    let ty = self.pop_type()?;
+                    return self.push(N::Global { prefix: p.into(), inner: Box::new(ty), suffix: String::new() });
+                }
+                if kind == b'K' && matches!(self.stack.last(), Some(N::FirstMarker | N::EmptyList | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. })) {
+                    return Err("metadata cache of a marker".into());
+                }
                 if p.starts_with("protocol descriptor")
-                    && let Some(N::Ident(_)) = self.stack.last()
+                    && let Some(N::Ident(_) | N::Private(_)) = self.stack.last()
                 {
-                    let name = self.pop_name()?;
+                    let name = self.pop_decl_name()?;
                     let ctx = self.pop_context()?;
                     let proto = N::Nominal { kind: 'P', ctx: Box::new(ctx), name };
                     return self.push(N::Global { prefix: p.into(), inner: Box::new(proto), suffix: String::new() });
                 }
-                if p.starts_with("protocol conformance") {
+                if p.starts_with("protocol conformance") || kind == b'A' {
                     let conf = self.conformance()?;
+                    if kind == b'A'
+                        && let N::Conformance { ty, module, .. } = &conf
+                        && (!matches!(**module, N::Module(_))
+                            || matches!(**ty, N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. }))
+                    {
+                        return Err("associated type descriptor of a non-type or outside a module".into());
+                    }
                     return self.push(N::Global { prefix: p.into(), inner: Box::new(conf), suffix: String::new() });
                 }
                 self.global(p)
@@ -995,7 +1090,7 @@ impl<'a> D<'a> {
             }
             b'v' => {
                 let ty = self.pop_type()?;
-                let name = self.pop_name()?;
+                let name = self.pop_decl_name()?;
                 let ctx = self.pop_context()?;
                 let accessor = self.accessor()?;
                 self.push(N::Entity {
@@ -1008,6 +1103,7 @@ impl<'a> D<'a> {
                     is_static: false,
                 })
             }
+            b'w' => self.value_witness(),
             b'x' => {
                 self.note_param(0);
                 self.push(N::Param(0, 0))
@@ -1068,26 +1164,26 @@ fn path(n: &N, depth: usize) -> String {
     }
 }
 
+/// The argument list of a function type, with `labels`, an entity's argument labels, one per
+/// argument. If at least one argument has a label, the others read `_:`, as in
+/// `append(_: Swift.UnsafeRawPointer, length: Swift.Int)`; if none has, all print bare. A single
+/// argument that isn't wrapped in a tuple prints bare whatever its label says.
 fn params_text(p: &N, labels: &[Option<String>], depth: usize) -> String {
+    let any_label = labels.iter().any(Option::is_some);
     let items: Vec<String> = match p {
         N::Tuple(t) => t
             .iter()
             .enumerate()
-            .map(|(i, (l, ty))| {
-                let label = labels.get(i).cloned().flatten().or_else(|| l.clone());
-                match label {
-                    Some(l) => format!("{l}: {}", render(ty, depth + 1)),
-                    None => render(ty, depth + 1),
+            .map(|(i, (own, ty))| {
+                let ty = render(ty, depth + 1);
+                match labels.get(i).cloned().flatten().or_else(|| own.clone()) {
+                    Some(l) => format!("{l}: {ty}"),
+                    None if any_label => format!("_: {ty}"),
+                    None => ty,
                 }
             })
             .collect(),
-        other => {
-            let t = render(other, depth + 1);
-            match labels.first().cloned().flatten() {
-                Some(l) => vec![format!("{l}: {t}")],
-                None => vec![t],
-            }
-        }
+        other => vec![render(other, depth + 1)],
     };
     format!("({})", items.join(", "))
 }
@@ -1149,7 +1245,7 @@ fn render(n: &N, depth: usize) -> String {
     }
     let d = depth + 1;
     match n {
-        N::Ident(s) | N::Module(s) | N::Builtin(s) => s.clone(),
+        N::Ident(s) | N::Private(s) | N::Module(s) | N::Builtin(s) => s.clone(),
         N::Nominal { .. } | N::Extension { .. } => path(n, d),
         N::Bound { base, args } => {
             let b = path(base, d);
@@ -1202,10 +1298,13 @@ fn render(n: &N, depth: usize) -> String {
                     let acc = accessor.filter(|a| !a.is_empty()).map(|a| format!(".{a}")).unwrap_or_default();
                     format!("{c}.{}{acc} : {}", name.clone().unwrap_or_default(), ty.as_ref().map(|t| render(t, d)).unwrap_or_default())
                 }
-                EKind::Subscript => {
-                    let acc = accessor.filter(|a| !a.is_empty()).map(|a| format!(".{a}")).unwrap_or_default();
-                    format!("{c}.subscript{}{acc}", ty_text(ty))
-                }
+                // With an accessor the accessor comes right after `subscript` and the type follows
+                // a colon, as for a variable: `X.subscript.getter : (Swift.Int) -> A`. Without one
+                // (a property descriptor) the type is written straight after: `X.subscript(Swift.Int) -> A`.
+                EKind::Subscript => match accessor.filter(|a| !a.is_empty()) {
+                    Some(a) => format!("{c}.subscript.{a} : {}", ty_text(ty)),
+                    None => format!("{c}.subscript{}", ty_text(ty)),
+                },
                 EKind::Closure(i, explicit) => {
                     format!(
                         "{} #{} {} in {c}",

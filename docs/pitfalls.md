@@ -251,6 +251,13 @@ no error to find. Once the stream's own terminal event is parsed, stop waiting o
 itself: fold a `result_seen` flag into `cancel_when` with a short grace period (`RESULT_GRACE`),
 and don't report that as "Stopped." A terminal stream event, not the OS exit, is what ends a turn.
 
+**A deadline that ended in a wait with none.** Every `Process` run has a time limit and a cancel,
+but when either fired the supervisor called the library's `kill()`, which stops the program and
+then waits for it with no limit (on Windows also for a job message the system doesn't promise).
+A program that outlives its stop held the run, and Pause, for good (#1438, #981). A deadline covers
+its own cleanup too: after a stop, poll for a moment and move on (`process::end`), and when a
+library call says "kill", read whether it also waits. Not reproduced on the reporters' machines.
+
 **A console held open by a program started next door.** On Windows Server 2022 opening a
 pseudoconsole briefly makes inheritable handles (a Unix terminal too, until it's made close-on-exec),
 so a program another thread started at that moment kept the console open until it ended, and closing
@@ -485,6 +492,17 @@ systems with `cargo check --target`, with zig as the C compiler for `ring` (a wr
 **Unformatted code reached `main`.** A test was edited by script after `cargo fmt --all` had run,
 so #53 merged with a long line rustfmt rewraps. Run `cargo fmt --all --check` last, after every
 edit, right before committing.
+
+**Clippy passed on an older Rust.** #1480 ran clippy on Rust 1.97 (the workspace's
+`rust-version`), clean; CI's 1.99 has `clippy::chunks_exact_to_as_chunks` and stopped the PR on
+it. A clippy that predates a lint can't report it. Run fmt and clippy with CI's toolchain
+(`RUSTUP_TOOLCHAIN=1.99.0`), and if a tool says it isn't installed for a toolchain, install that
+toolchain's component rather than running another copy.
+
+**A process list read nothing on FreeBSD.** `ps -A -o pid=,ppid=` lists both columns on Linux,
+but POSIX makes everything after `=` the header, so FreeBSD's `ps` printed one `pid` column headed
+",ppid=" and every parent lookup came back empty. Give each column its own `-o` (`-o pid= -o ppid=`)
+when a header is renamed or blanked.
 
 ## Design
 

@@ -96,6 +96,7 @@ impl<'a> Visit<'a> for RewriteVisitor<'_> {
             if let Statement::ExpressionStatement(es) = st
                 && let Expression::SequenceExpression(seq) = &es.expression
                 && seq.expressions.len() >= 2
+                && !matches!(seq.expressions.first(), Some(Expression::StringLiteral(_)))
                 && seq.expressions.iter().skip(1).all(|e| starts_statement_safely(slice(self.src, e.span().start, e.span().end)))
             {
                 for pair in seq.expressions.windows(2) {
@@ -380,5 +381,25 @@ mod tests {
         assert_eq!(safe_module_path("..", ".js"), "module.js");
         assert_eq!(safe_module_path("12", ".js"), "12.js");
         assert_eq!(safe_module_path(".hidden", ".js"), "hidden.js");
+    }
+}
+
+#[cfg(test)]
+mod sequence_directives_regression {
+    use super::*;
+
+    #[test]
+    fn splitting_does_not_introduce_use_strict() {
+        for source in [r#"function f(){ "hello", "use strict"; return this; }"#, r#""hello", "use strict"; globalThis.answer = this;"#] {
+            let (out, _) = pretty_print("a.cjs", source, RewriteLevel::Standard, &Limits::default()).unwrap();
+            assert!(out.contains(','), "{out}");
+        }
+    }
+
+    #[test]
+    fn ordinary_sequences_still_split() {
+        let (out, count) = pretty_print("a.cjs", "a(), b();", RewriteLevel::Standard, &Limits::default()).unwrap();
+        assert_eq!(count, 1);
+        assert!(!out.contains(','), "{out}");
     }
 }

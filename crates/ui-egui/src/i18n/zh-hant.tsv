@@ -898,6 +898,7 @@ Read a Unity game's IL2CPP metadata	讀取 Unity 遊戲的 IL2CPP 中繼資料
 Read a game's files	讀取遊戲檔案
 Read a project file	讀取專案檔案
 Read a setting	讀取設定
+Read a text file	讀取文字檔案
 Read an app's screen	讀取應用程式畫面
 Read bytes	讀取位元組
 Read comment	讀取註解
@@ -1471,3 +1472,6 @@ Couldn't change the approvals:	無法變更審核：
 What the builder may do without asking you, in this project.	在這個專案中，建置助手不必問你就可以做的事。
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	預設跟隨自動模式：開啟時，可復原的操作會執行，其餘會被拒絕；關閉時，建置助手會詢問。
 Connecting to {name}… {seconds} s	正在連線 {name}… {seconds} 秒
+Stopped adding {name}.	已停止新增 {name}。
+It isn't there any more, so {program} runs in its place.	它已不在那裡，因此改用 {program}。
+Use it	使用它

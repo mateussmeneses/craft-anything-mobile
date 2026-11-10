@@ -352,6 +352,10 @@ pub fn certificate_parts(data: &[u8]) -> Option<CertParts<'_>> {
     }
     let serial_tlv = f.get(i).filter(|t| t.tag == 0x02)?;
     let serial = serial_tlv.bytes(data)?;
+    let signed_algorithm = seq_alg_oid(data, f.get(i + 1)?)?;
+    if signed_algorithm != signature_algorithm {
+        return None;
+    }
     let issuer = f.get(i + 2).filter(|t| t.tag == 0x30).and_then(|t| t.whole(data))?;
     let subject = f.get(i + 4).filter(|t| t.tag == 0x30).and_then(|t| t.whole(data))?;
     let spki = f.get(i + 5).filter(|t| t.tag == 0x30).and_then(|t| t.whole(data))?;
@@ -398,6 +402,87 @@ pub fn count_nodes(data: &[u8]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn signature_identifier(id: &str, null_parameter: bool) -> Vec<u8> {
+        use craft_anything_testkit::android::{der, der_oid};
+        let mut fields = der_oid(id);
+        if null_parameter {
+            fields.extend_from_slice(&der(0x05, &[]));
+        }
+        der(0x30, &fields)
+    }
+
+    fn signed_certificate_with_algorithms(inner: &[u8], outer: &[u8], versioned: bool) -> Vec<u8> {
+        use craft_anything_testkit::{android::der, crypto};
+        let original = crypto::self_signed_rsa("Algorithm Fixture", "Fixture Org");
+        let certificate = children(&original, &read(&original, 0).unwrap());
+        let fields = children(&original, &certificate[0]);
+        let mut tbs = Vec::new();
+        for (i, field) in fields.iter().enumerate() {
+            if i == 0 && !versioned {
+                continue;
+            }
+            tbs.extend_from_slice(if i == 2 { inner } else { field.whole(&original).unwrap() });
+        }
+        let tbs = der(0x30, &tbs);
+        let mut signature = vec![0];
+        signature.extend_from_slice(&crypto::rsa_sign_sha256(&tbs));
+        der(0x30, &[tbs.as_slice(), outer, &der(0x03, &signature)].concat())
+    }
+
+    fn assert_real_sha256_signature(cert: &[u8]) {
+        use crate::verify::{Digest, SigScheme, Verified, verify_signature};
+        let parts = children(cert, &read(cert, 0).unwrap());
+        let tbs = parts[0].whole(cert).unwrap();
+        let signature = &parts[2].bytes(cert).unwrap()[1..];
+        assert_eq!(verify_signature(&craft_anything_testkit::crypto::rsa_spki(), SigScheme::RsaPkcs1v15(Digest::Sha256), tbs, signature), Verified::Valid);
+    }
+
+    #[test]
+    fn conflicting_certificate_signature_oids_do_not_verify() {
+        let outer = signature_identifier("1.2.840.113549.1.1.11", true);
+        for versioned in [false, true] {
+            for id in ["1.2.840.113549.1.1.5", "1.2.840.113549.1.1.12"] {
+                let inner = signature_identifier(id, true);
+                let cert = signed_certificate_with_algorithms(&inner, &outer, versioned);
+                assert_real_sha256_signature(&cert);
+                let chain = crate::verify::verify_chain(&[&cert]);
+                assert!(!chain.fully_linked, "versioned={versioned}, inner={id}: {chain:?}");
+                assert!(certificate_parts(&cert).is_none(), "versioned={versioned}, inner={id}");
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_signed_algorithm_fields_do_not_verify() {
+        use craft_anything_testkit::android::der;
+        let outer = signature_identifier("1.2.840.113549.1.1.11", true);
+        for inner in [der(0x02, &[1]), der(0x30, &der(0x02, &[1])), der(0x30, &der(0x06, &[0x80, 0x2a]))] {
+            let cert = signed_certificate_with_algorithms(&inner, &outer, true);
+            assert_real_sha256_signature(&cert);
+            let chain = crate::verify::verify_chain(&[&cert]);
+            assert!(!chain.fully_linked, "{chain:?}");
+            assert!(certificate_parts(&cert).is_none());
+        }
+    }
+
+    #[test]
+    fn matching_signature_oids_keep_rsa_null_and_absent_parameters() {
+        for versioned in [false, true] {
+            for inner_null in [false, true] {
+                for outer_null in [false, true] {
+                    let inner = signature_identifier("1.2.840.113549.1.1.11", inner_null);
+                    let outer = signature_identifier("1.2.840.113549.1.1.11", outer_null);
+                    let cert = signed_certificate_with_algorithms(&inner, &outer, versioned);
+                    assert!(certificate_parts(&cert).is_some());
+                    let chain = crate::verify::verify_chain(&[&cert]);
+                    assert!(chain.fully_linked);
+                    assert!(chain.links[0].signature_verified.is_valid());
+                    assert_eq!(chain.trusted_root, None);
+                }
+            }
+        }
+    }
 
     #[test]
     fn verifier_checks_the_fields_before_exposing_their_bytes() {

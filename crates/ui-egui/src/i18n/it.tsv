@@ -900,6 +900,7 @@ Read a Unity game's IL2CPP metadata	Leggi i metadati IL2CPP di un gioco Unity
 Read a game's files	Leggi i file di un gioco
 Read a project file	Leggi un file del progetto
 Read a setting	Leggi un'impostazione
+Read a text file	Leggi un file di testo
 Read an app's screen	Leggi lo schermo di un'app
 Read bytes	Leggi i byte
 Read comment	Leggi il commento
@@ -1473,3 +1474,6 @@ Couldn't change the approvals:	Impossibile cambiare le approvazioni:
 What the builder may do without asking you, in this project.	Cosa può fare il costruttore senza chiedertelo, in questo progetto.
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	Predefinito segue la modalità automatica: se è attiva, ciò che si può annullare va avanti e il resto è rifiutato; se è spenta, il costruttore chiede.
 Connecting to {name}… {seconds} s	Connessione a {name}… {seconds} s
+Stopped adding {name}.	Aggiunta di {name} interrotta.
+It isn't there any more, so {program} runs in its place.	Non è più lì, quindi al suo posto si usa {program}.
+Use it	Usalo

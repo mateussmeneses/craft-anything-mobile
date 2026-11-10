@@ -893,6 +893,7 @@ Read a Unity game's IL2CPP metadata	Читать метаданные IL2CPP и�
 Read a game's files	Читать файлы игры
 Read a project file	Читать файл проекта
 Read a setting	Читать настройку
+Read a text file	Читать текстовый файл
 Read an app's screen	Читать экран приложения
 Read bytes	Читать байты
 Read comment	Читать комментарий
@@ -1471,3 +1472,6 @@ Couldn't change the approvals:	Не удалось изменить разреш
 What the builder may do without asking you, in this project.	Что конструктор может делать в этом проекте, не спрашивая вас.
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	«По умолчанию» следует авторежиму: когда он включён, то, что можно отменить, выполняется, а остальное отклоняется; когда выключен, конструктор спрашивает.
 Connecting to {name}… {seconds} s	Подключение к {name}… {seconds} с
+Stopped adding {name}.	Добавление {name} остановлено.
+It isn't there any more, so {program} runs in its place.	Его там больше нет, поэтому вместо него запускается {program}.
+Use it	Использовать

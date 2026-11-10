@@ -10,6 +10,7 @@
 
 use crate::FormatError;
 use serde::Serialize;
+use std::collections::BTreeSet;
 
 /// Largest database file we read into memory (256 MiB).
 pub const MAX_INPUT: usize = 256 << 20;
@@ -201,7 +202,7 @@ pub struct RowCount {
 /// stop cycles, the remaining page-walk budget, how many rows are wanted, and any notes.
 struct RowWalk {
     index_tree: bool,
-    visited: Vec<u32>,
+    visited: BTreeSet<u32>,
     budget: usize,
     out: Vec<Row>,
     notes: Vec<String>,
@@ -216,7 +217,7 @@ impl RowWalk {
     fn new(want: usize) -> Self {
         RowWalk {
             index_tree: false,
-            visited: Vec::new(),
+            visited: BTreeSet::new(),
             budget: MAX_PAGES_WALKED,
             out: Vec::new(),
             notes: Vec::new(),
@@ -488,7 +489,7 @@ impl<'a> SqliteDb<'a> {
     /// Count the rows of the table rooted at `rootpage`, including interior index records.
     pub fn count_rows(&self, rootpage: u32) -> RowCount {
         let mut count: u64 = 0;
-        let mut visited = Vec::new();
+        let mut visited = BTreeSet::new();
         let mut budget = MAX_PAGES_WALKED;
         let index_tree = self.btree_header_off(rootpage).and_then(|hdr| self.data.get(hdr)).is_some_and(|ptype| matches!(*ptype, 0x02 | 0x0a));
         let bounded = !self.count_leaf_cells(rootpage, 0, &mut visited, &mut budget, &mut count, index_tree);
@@ -588,14 +589,13 @@ impl<'a> SqliteDb<'a> {
     }
 
     /// Recursively count rows. Returns false when a budget or an unreadable page/child stopped the walk.
-    fn count_leaf_cells(&self, pageno: u32, depth: usize, visited: &mut Vec<u32>, budget: &mut usize, count: &mut u64, index_tree: bool) -> bool {
+    fn count_leaf_cells(&self, pageno: u32, depth: usize, visited: &mut BTreeSet<u32>, budget: &mut usize, count: &mut u64, index_tree: bool) -> bool {
         if depth > MAX_DEPTH || *budget == 0 {
             return false;
         }
-        if visited.contains(&pageno) || pageno == 0 {
+        if pageno == 0 || !visited.insert(pageno) {
             return true; // a cycle or a null pointer: stop, but not a budget failure.
         }
-        visited.push(pageno);
         *budget -= 1;
         let Some(page) = self.btree_page(pageno) else { return false };
         let ptype = page.kind;
@@ -639,10 +639,9 @@ impl<'a> SqliteDb<'a> {
         if depth > MAX_DEPTH || w.budget == 0 || (w.want != 0 && w.out.len() >= w.want) {
             return;
         }
-        if w.visited.contains(&pageno) || pageno == 0 {
+        if pageno == 0 || !w.visited.insert(pageno) {
             return;
         }
-        w.visited.push(pageno);
         w.budget -= 1;
         let Some(page) = self.btree_page(pageno) else {
             w.notes.push(format!("Skipped an unreadable b-tree page {pageno}."));
@@ -2232,6 +2231,45 @@ mod tests {
                     let _ = parsed.read_rows(obj.rootpage, 0, 100);
                 }
                 let _ = parsed.read_rows(2, 0, 100);
+            }
+        }
+    }
+
+    #[test]
+    fn wide_btree_visits_keep_every_row_in_key_order() {
+        use craft_anything_testkit::sqlite::{Val, without_rowid_db};
+        let rows = (0..1023).map(|i| vec![Val::Int(i), Val::Text(format!("value {i}"))]).collect::<Vec<_>>();
+        let bytes = without_rowid_db("CREATE TABLE t(k INT PRIMARY KEY, v TEXT) WITHOUT ROWID", &rows);
+        let db = SqliteDb::parse(&bytes).expect("fixture parses");
+        let count = db.count_rows(2);
+        assert_eq!(count.count, 1023);
+        assert!(!count.bounded);
+        let page = db.read_rows(2, 0, 1024);
+        assert_eq!(page.rows.len(), 1023);
+        assert!(!page.truncated);
+        assert!(page.notes.is_empty());
+        for (i, row) in page.rows.iter().enumerate() {
+            assert_eq!(row.rowid, None);
+            assert_eq!(row.values, vec![CellValue::Int(i as i64), CellValue::Text { text: format!("value {i}"), truncated: false }]);
+        }
+    }
+
+    #[test]
+    fn repeated_btree_children_and_cycles_do_not_repeat_rows() {
+        use craft_anything_testkit::sqlite::{PAGE_SIZE, Val, without_rowid_db};
+        let rows = (0..15).map(|i| vec![Val::Int(i)]).collect::<Vec<_>>();
+        let base = without_rowid_db("CREATE TABLE t(k INT PRIMARY KEY) WITHOUT ROWID", &rows);
+        let cell = usize::from(u16::from_be_bytes([base[PAGE_SIZE + 12], base[PAGE_SIZE + 13]]));
+        let first_child = u32::from_be_bytes(base[PAGE_SIZE + cell..PAGE_SIZE + cell + 4].try_into().unwrap());
+        for right in [2, first_child] {
+            let mut bytes = base.clone();
+            bytes[PAGE_SIZE + 8..PAGE_SIZE + 12].copy_from_slice(&right.to_be_bytes());
+            let db = SqliteDb::parse(&bytes).expect("fixture parses");
+            assert_eq!(db.count_rows(2).count, 12);
+            let page = db.read_rows(2, 0, 16);
+            assert_eq!(page.rows.len(), 12);
+            for (i, row) in page.rows.iter().enumerate() {
+                assert_eq!(row.values, vec![CellValue::Int(i as i64)]);
             }
         }
     }

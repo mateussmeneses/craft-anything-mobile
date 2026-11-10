@@ -262,8 +262,13 @@ pub fn set(text: &str, table: &str, name: &str, value: &Value) -> Result<String,
     let found = find_table(&lines, table)?;
     match found {
         None => {
-            out.push((format!("{table}:"), eol));
-            out.extend(new_lines(render_entry(name, value, 2)));
+            let at = lines
+                .iter()
+                .position(|line| line.strip_prefix("...").is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t'])))
+                .unwrap_or(out.len());
+            let mut added = vec![(format!("{table}:"), eol)];
+            added.extend(new_lines(render_entry(name, value, 2)));
+            out.splice(at..at, added);
         }
         Some(block) => {
             let indent = child_indent(&lines, &block);
@@ -384,5 +389,26 @@ mod tests {
         let new = set(mixed, "mcp_servers", "craft-anything", &entry).unwrap();
         assert!(new.starts_with("# top\r\nmodel: big\nmcp_servers:\r\n  other:\n    command: x\r\n  craft-anything:"), "{new:?}");
         assert_eq!(remove(&new, "mcp_servers", "craft-anything").unwrap(), mixed);
+    }
+}
+
+#[cfg(test)]
+mod document_end_regressions {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn missing_table_is_inserted_before_document_end() {
+        let value = json!({"command": "craft-anything-cli", "args": ["mcp"]});
+        for text in ["model: x\n...\n", "---\nmodel: x\r\n... # end\r\n# tail\r\n"] {
+            let output = set(text, "mcp_servers", "craft-anything", &value).unwrap();
+            assert_eq!(parse(&output).unwrap()["mcp_servers"]["craft-anything"], value);
+            assert_eq!(set(&output, "mcp_servers", "craft-anything", &value).unwrap(), output);
+            let removed = remove(&output, "mcp_servers", "craft-anything").unwrap();
+            assert!(removed.ends_with(text.split_once("...").map(|(_, tail)| format!("...{tail}")).as_deref().unwrap()));
+            assert_eq!(parse(&removed).unwrap()["model"], "x");
+        }
+        let output = set("...suffix: keep\n", "mcp_servers", "craft-anything", &value).unwrap();
+        assert_eq!(parse(&output).unwrap()["...suffix"], "keep");
     }
 }

@@ -898,6 +898,7 @@ Read a Unity game's IL2CPP metadata	อ่านเมทาดาทา IL2CPP 
 Read a game's files	อ่านไฟล์ของเกม
 Read a project file	อ่านไฟล์โปรเจกต์
 Read a setting	อ่านการตั้งค่า
+Read a text file	อ่านไฟล์ข้อความ
 Read an app's screen	อ่านหน้าจอแอป
 Read bytes	อ่านไบต์
 Read comment	อ่านคอมเมนต์
@@ -1471,3 +1472,6 @@ Couldn't change the approvals:	เปลี่ยนการอนุมัต�
 What the builder may do without asking you, in this project.	สิ่งที่ตัวสร้างทำได้โดยไม่ถามในโปรเจกต์นี้
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	ค่าเริ่มต้นตามโหมดอัตโนมัติ: เปิดไว้จะทำสิ่งที่ย้อนกลับได้ต่อและปฏิเสธที่เหลือ ปิดไว้ตัวสร้างจะถาม
 Connecting to {name}… {seconds} s	กำลังเชื่อมต่อกับ {name}… {seconds} วินาที
+Stopped adding {name}.	หยุดเพิ่ม {name} แล้ว
+It isn't there any more, so {program} runs in its place.	ไม่มีอยู่ที่นั่นแล้ว จึงใช้ {program} แทน
+Use it	ใช้อันนี้
