@@ -2306,8 +2306,10 @@ Owner: open · Status: in progress
       (`android_bundle_show`, `formats::aapt_proto`)
 - [x] Let the other `android_*` tools (classes, resources, components) read a split APK set's
       base APK directly (found by its manifest, not its name)
-- [ ] The same for a bundle's base module: its DEX files are under `base/dex/`, its manifest is
-      protocol buffers and its resources are `resources.pb`, not `resources.arsc`
+- [x] The same for a bundle's base module: its DEX files under `base/dex/`, its manifest and XML
+      read as protocol buffers
+- [ ] A bundle's resource table (`resources.pb`, protocol buffers, not `resources.arsc`), and its
+      native libraries and signing in `android_package_show`
 - [ ] Check `android_bundle_show` on a real `.aab` (no bundletool or Gradle here to make one) and
       a real `.xapk`
 - [x] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,

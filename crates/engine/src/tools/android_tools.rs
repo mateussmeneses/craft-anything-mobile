@@ -358,6 +358,9 @@ struct Pkg {
     /// (name, bytes)
     dexes: Vec<(String, Vec<u8>)>,
     warnings: Vec<String>,
+    /// For an App Bundle: the module read (`base/`). Its files sit under it, and its XML is
+    /// protocol buffers, not binary XML.
+    module: Option<String>,
 }
 
 fn is_root_dex(name: &str) -> bool {
@@ -366,7 +369,7 @@ fn is_root_dex(name: &str) -> bool {
 
 fn load_pkg(ctx: &Ctx<'_>, path: Option<&str>, want_dex: bool) -> Result<Pkg, ToolError> {
     let input = static_input::load(ctx, path, MAX_APK)?;
-    let mut pkg = Pkg { zip: None, dexes: Vec::new(), warnings: Vec::new(), input };
+    let mut pkg = Pkg { zip: None, dexes: Vec::new(), warnings: Vec::new(), input, module: None };
     if dex::is_dex(&pkg.input.bytes) {
         pkg.dexes.push((pkg.input.name.clone(), pkg.input.bytes.to_vec()));
         return Ok(pkg);
@@ -386,11 +389,17 @@ fn load_pkg(ctx: &Ctx<'_>, path: Option<&str>, want_dex: bool) -> Result<Pkg, To
         z = zip::parse(&pkg.input.bytes, 500_000)
             .map_err(|e| ToolError::new(ErrorCode::NotSupported, format!("Couldn't read the base APK's ZIP directory: {e}")))?;
     }
+    // An App Bundle: read its base module.
+    if !z.entries.iter().any(|e| e.name == "AndroidManifest.xml") && z.entries.iter().any(|e| e.name == "base/manifest/AndroidManifest.xml") {
+        pkg.warnings.push("read the base module of this App Bundle; feature modules, native code and signing are not read here".into());
+        pkg.module = Some("base/".into());
+    }
+    let dex_dir = if pkg.module.is_some() { "base/dex/" } else { "" };
     if want_dex {
         let mut total = 0u64;
-        let mut names: Vec<&zip::ZipEntry> = z.entries.iter().filter(|e| is_root_dex(&e.name)).collect();
+        let mut names: Vec<&zip::ZipEntry> = z.entries.iter().filter(|e| e.name.strip_prefix(dex_dir).is_some_and(is_root_dex)).collect();
         // classes.dex, classes2.dex, classes3.dex … in load order.
-        names.sort_by_key(|e| e.name.trim_start_matches("classes").trim_end_matches(".dex").parse::<u32>().unwrap_or(1));
+        names.sort_by_key(|e| e.name.trim_start_matches(dex_dir).trim_start_matches("classes").trim_end_matches(".dex").parse::<u32>().unwrap_or(1));
         for e in names {
             ctx.cancel.check()?;
             if total.saturating_add(e.uncompressed_size) > MAX_DEX_TOTAL {
@@ -437,8 +446,18 @@ fn base_of_set(bytes: &[u8], z: &zip::ZipArchive) -> Option<(String, Vec<u8>)> {
 
 fn member(pkg: &Pkg, name: &str) -> Option<Result<Vec<u8>, String>> {
     let z = pkg.zip.as_ref()?;
+    let name = match (&pkg.module, name) {
+        (Some(m), "AndroidManifest.xml") => format!("{m}manifest/AndroidManifest.xml"),
+        (Some(m), n) => format!("{m}{n}"),
+        (None, n) => n.to_string(),
+    };
     let e = z.entries.iter().find(|e| e.name == name)?;
     Some(zip::read_entry(&pkg.input.bytes, e, MAX_MEMBER).map_err(|e| e.to_string()))
+}
+
+/// A compiled XML file of the package: binary XML in an APK, protocol buffers in a bundle.
+fn parse_xml(pkg: &Pkg, bytes: &[u8]) -> Result<axml::Document, craft_anything_formats::FormatError> {
+    if pkg.module.is_some() { craft_anything_formats::aapt_proto::parse(bytes) } else { axml::parse(bytes) }
 }
 
 fn parse_dexes(pkg: &Pkg) -> (Vec<(&str, dex::Dex<'_>)>, Vec<String>) {
@@ -518,7 +537,7 @@ fn android_package_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, 
     // Manifest
     let mut manifest_coverage = Coverage { status: CoverageStatus::Partial, ..Coverage::default() };
     let (manifest, manifest_xml) = match member(&pkg, "AndroidManifest.xml") {
-        Some(Ok(b)) => match axml::parse(&b) {
+        Some(Ok(b)) => match parse_xml(&pkg, &b) {
             Ok(doc) => {
                 if !doc.truncated {
                     manifest_coverage.status = CoverageStatus::Complete;
@@ -756,7 +775,7 @@ fn android_components_list(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutpu
                 .with_remediation("Check it's an APK; run core_target_triage to see what it is."));
         }
     };
-    let doc = axml::parse(&bytes).map_err(|e| format_err(e, "a binary AndroidManifest.xml"))?;
+    let doc = parse_xml(&pkg, &bytes).map_err(|e| format_err(e, "a compiled AndroidManifest.xml"))?;
     let m = axml::manifest(&doc);
     let rows: Vec<Value> = m
         .components
@@ -1226,7 +1245,7 @@ fn android_resources_read(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     let p: ResourcesParams = parse_params(params)?;
     let input = static_input::load(ctx, p.path.as_deref(), MAX_APK)?;
     let is_arsc = input.bytes.get(..2) == Some(&[0x02, 0x00]);
-    let pkg = if is_arsc { Pkg { input, zip: None, dexes: Vec::new(), warnings: Vec::new() } } else { load_pkg(ctx, p.path.as_deref(), false)? };
+    let pkg = if is_arsc { Pkg { input, zip: None, dexes: Vec::new(), warnings: Vec::new(), module: None } } else { load_pkg(ctx, p.path.as_deref(), false)? };
     let arsc_bytes: Vec<u8> = if is_arsc {
         pkg.input.bytes.to_vec()
     } else {
@@ -1284,7 +1303,7 @@ fn android_resources_read(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
             break;
         }
         match member(&pkg, f) {
-            Some(Ok(b)) => match axml::parse(&b) {
+            Some(Ok(b)) => match parse_xml(&pkg, &b) {
                 Ok(doc) => xml.push(json!({"path": f, "xml": doc.to_xml(256 * 1024), "warnings": doc.warnings})),
                 Err(e) => xml.push(json!({"path": f, "error": e.to_string()})),
             },
@@ -1426,6 +1445,47 @@ mod tests {
         let only_split = craft_anything_testkit::temp_file("x.apks", &zip_stored(&[("a.apk", &split)])).to_string_lossy().into_owned();
         let v = call(&e, "android_package_show", json!({"path": only_split}));
         assert!(v["limitations"].as_array().unwrap().iter().any(|l| l["code"] == "no_manifest"));
+    }
+
+    #[test]
+    fn an_app_bundle_is_read_through_its_base_module() {
+        use craft_anything_testkit::electron::zip_stored;
+        fn var(mut v: usize) -> Vec<u8> {
+            let mut out = Vec::new();
+            loop {
+                let b = (v & 0x7f) as u8;
+                v >>= 7;
+                if v == 0 {
+                    out.push(b);
+                    return out;
+                }
+                out.push(b | 0x80);
+            }
+        }
+        let field = |num: u8, b: &[u8]| [vec![num << 3 | 2], var(b.len()), b.to_vec()].concat();
+        let attr = |ns: &str, name: &str, value: &str| field(4, &[field(1, ns.as_bytes()), field(2, name.as_bytes()), field(3, value.as_bytes())].concat());
+        let el = |name: &str, attrs: &[Vec<u8>], kids: &[Vec<u8>]| {
+            field(1, &[field(3, name.as_bytes()), attrs.concat(), kids.iter().map(|k| field(5, k)).collect::<Vec<_>>().concat()].concat())
+        };
+        let ns = craft_anything_formats::axml::ANDROID_NS;
+        let activity = el("activity", &[attr(ns, "name", ".Main"), attr(ns, "exported", "true")], &[]);
+        let manifest = el("manifest", &[attr("", "package", "com.example.bundle"), attr(ns, "versionCode", "3")], &[el("application", &[], &[activity])]);
+        // The DEX from the sample APK, placed where a bundle keeps it.
+        let apk_bytes = fx::notes_apk();
+        let z = craft_anything_formats::zip::parse(&apk_bytes, 100).unwrap();
+        let dex_entry = z.entries.iter().find(|e| e.name == "classes.dex").unwrap();
+        let dex_bytes = craft_anything_formats::zip::read_entry(&apk_bytes, dex_entry, 1 << 24).unwrap();
+        let aab = zip_stored(&[("base/manifest/AndroidManifest.xml", &manifest), ("base/dex/classes.dex", &dex_bytes), ("BundleConfig.pb", b"")]);
+        let path = craft_anything_testkit::temp_file("notes.aab", &aab).to_string_lossy().into_owned();
+        let e = Engine::new(crate::testing::session());
+        let v = call(&e, "android_package_show", json!({"path": path}));
+        assert_eq!((v["result"]["package"].as_str(), v["result"]["version_code"].as_str()), (Some("com.example.bundle"), Some("3")), "{}", v["summary"]);
+        assert_eq!(v["result"]["dex"].as_array().map(Vec::len), Some(1));
+        let comps = call(&e, "android_components_list", json!({"path": path}));
+        assert!(comps["result"].to_string().contains("com.example.bundle.Main"), "{}", comps["result"]);
+        let c = call(&e, "android_classes_find", json!({"path": path, "query": "notes"}));
+        let single = call(&e, "android_classes_find", json!({"path": apk(), "query": "notes"}));
+        assert_eq!(c["result"]["total"], single["result"]["total"]);
     }
 
     #[test]
