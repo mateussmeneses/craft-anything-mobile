@@ -953,6 +953,11 @@ such facts on the tool itself (`Effects::CARRIES_TARGET_CONTENT`), compare `Regi
 ids (which cover old ids and `mcp__…__` names) instead of raw names, and keep tool ids that other
 code depends on in one constant next to the tool.
 
+**A built-in table that empties itself on a typo.** A scripted edit put unescaped quotes in a
+`stacks.toml` string; the table is read with `unwrap_or_default()`, so every stack vanished with no
+error, and only unrelated tests (Godot no longer found) showed it. Edit a TOML string with the
+editor tool, and keep a test that parses each built-in table and fails on the parse error itself.
+
 **A new tool named the old way.** Two new tools got ids outside the scheme although new tools use
 `<area>_<object>_<action>` from the start, and had to be renamed. Read docs/tool-ids.md before
 naming a tool.

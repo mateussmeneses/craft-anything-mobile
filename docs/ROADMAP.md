@@ -2369,6 +2369,10 @@ Owner: maintainers · Status: in progress
       Views, MAUI and Multiplatform only when asked for by name)
 - [x] An Android toolchain in `toolchains.toml` (before plain Gradle): `assembleDebug`, where the
       APK lands
+- [x] Flutter builds with its own toolchain (`flutter build apk --debug`), React Native through
+      its `build` script (`react-native build-android --mode=debug`); .NET MAUI with the .NET one
+- [ ] Build each stack once for real through the build check (only Flutter's command was run by
+      hand here)
 - [ ] Its launch recipe: install the built APK on the chosen device and start it (Play), which
       needs a device choice a recipe of one command can't carry
 - [x] `InstallCheck`: the built APK installs, starts and stays up; a crash in the log fails it with

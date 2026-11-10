@@ -33,7 +33,7 @@ steps = "Use Flutter with Dart. Create the project directly in app/ (pubspec.yam
 name = "React Native"
 asked_by = [" react native ", " in expo ", " with expo "]
 uses = ["react-native"]
-steps = "Use React Native with TypeScript. Create the project directly in app/ (package.json with react and react-native, the android/ folder with its Gradle wrapper, and a package name of your own), run `npm install`, then build the debug APK with `gradlew assembleDebug` from app/android/ until it succeeds; it lands in app/android/app/build/outputs/apk/debug/. Bundle the JavaScript into the APK (no development server is running when it is checked)."
+steps = "Use React Native with TypeScript. Create the project directly in app/ (package.json with react and react-native, the android/ folder with its Gradle wrapper, and a package name of your own), and the script \"build\": \"react-native build-android --mode=debug\" in package.json (Craft Anything builds it with `npm run build`). Run `npm install` and `npm run build` from app/ until it succeeds; the APK lands in app/android/app/build/outputs/apk/debug/. Bundle the JavaScript into the APK (no development server is running when it is checked)."
 
 [[stack]]
 name = ".NET MAUI"

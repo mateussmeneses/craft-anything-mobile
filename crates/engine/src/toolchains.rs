@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn the_shared_catalogue_is_complete() {
         let parsed: Table = toml::from_str(include_str!("toolchains.toml")).unwrap();
-        assert_eq!(parsed.toolchain.len(), 9);
+        assert_eq!(parsed.toolchain.len(), 10);
         for tool in catalogue() {
             assert!(!tool.found_by.is_empty() && !tool.build.is_empty() && !tool.test.is_empty(), "{tool:?}");
             for recipe in &tool.launch {
@@ -238,6 +238,9 @@ mod tests {
         std::fs::write(dir.path().join("app/src/main/AndroidManifest.xml"), "<manifest/>").unwrap();
         let t = found_in(dir.path()).unwrap();
         assert_eq!((t.name.as_str(), t.build.last().map(String::as_str)), ("Android (Gradle)", Some("assembleDebug")));
+        // A Flutter project, which also holds android/app/src/main/AndroidManifest.xml, builds with Flutter.
+        std::fs::write(dir.path().join("pubspec.yaml"), "name: x").unwrap();
+        assert_eq!(found_in(dir.path()).map(|t| t.name.as_str()), Some("Flutter"));
     }
 
     /// Shared launch detection preserves argument boundaries and refuses ambiguous projects.
