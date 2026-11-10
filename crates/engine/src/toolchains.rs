@@ -219,13 +219,25 @@ mod tests {
     #[test]
     fn the_shared_catalogue_is_complete() {
         let parsed: Table = toml::from_str(include_str!("toolchains.toml")).unwrap();
-        assert_eq!(parsed.toolchain.len(), 8);
+        assert_eq!(parsed.toolchain.len(), 9);
         for tool in catalogue() {
             assert!(!tool.found_by.is_empty() && !tool.build.is_empty() && !tool.test.is_empty(), "{tool:?}");
             for recipe in &tool.launch {
                 assert!(!recipe.file.is_empty() && !recipe.command.is_empty(), "{recipe:?}");
             }
         }
+    }
+
+    /// An Android app module is built as a debug APK, ahead of plain Gradle.
+    #[test]
+    fn an_android_module_builds_a_debug_apk() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("build.gradle.kts"), "").unwrap();
+        assert_eq!(found_in(dir.path()).map(|t| t.name.as_str()), Some("Gradle"));
+        std::fs::create_dir_all(dir.path().join("app/src/main")).unwrap();
+        std::fs::write(dir.path().join("app/src/main/AndroidManifest.xml"), "<manifest/>").unwrap();
+        let t = found_in(dir.path()).unwrap();
+        assert_eq!((t.name.as_str(), t.build.last().map(String::as_str)), ("Android (Gradle)", Some("assembleDebug")));
     }
 
     /// Shared launch detection preserves argument boundaries and refuses ambiguous projects.

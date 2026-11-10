@@ -165,6 +165,7 @@ Ask before running anything	Küsi enne iga käivitamist
 Ask each time	Küsi iga kord
 Ask first	Küsi enne
 Ask for a change	Palu muudatust
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	Palu muudatust, nt „suurem otsinguriba“ või „lisa seadete ekraan“
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	Palu muudatust, nt „suuremad nupud“ või „lisa tume režiim“
 Ask for a change, e.g. "make it faster" or "add a high-score table"	Palu muudatust, nt „tee kiiremaks“ või „lisa edetabel“
 Ask for a change, e.g. "make the header blue" or "add a contact form"	Palu muudatust, nt „tee päis siniseks“ või „lisa kontaktvorm“
@@ -970,6 +971,7 @@ Run a scripted Electron session	Käivita skriptitud Electroni seanss
 Run a scripted web session	Käivita skriptitud veebiseanss
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	Käivita tööriist käsupaletist (Ctrl/⌘ K) või vali leid tõendite paneelil.
 Run and watch a program	Käivita ja jälgi programmi
+Run on Android	Käivita Androidis
 Run to study	Käivita uurimiseks
 Running	Töötab
 Running processes	Töötavad protsessid
@@ -1305,6 +1307,7 @@ You answered: {a}	Vastasid: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Hiljem saad jaotises Seaded → AI lisada Claude'i, ChatGPT või OpenRouteri võtme, kohaliku mudeli (Ollama, LM Studio) või agendi, mida juba kasutad.
 You chose:	Valisid:
 You're all set	Kõik on valmis
+Your Android app is ready	Sinu Androidi rakendus on valmis
 Your app is ready	Sinu rakendus on valmis
 Your brains	Sinu ajud
 Your fal.ai key	Sinu fal.ai võti

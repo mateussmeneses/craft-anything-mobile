@@ -165,6 +165,7 @@ Ask before running anything	ถามก่อนรันทุกอย่า�
 Ask each time	ถามทุกครั้ง
 Ask first	ถามก่อน
 Ask for a change	ขอแก้ไข
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	ขอการเปลี่ยนแปลง เช่น "แถบค้นหาที่ใหญ่ขึ้น" หรือ "เพิ่มหน้าการตั้งค่า"
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	ขอแก้ไข เช่น "ปุ่มใหญ่ขึ้น" หรือ "เพิ่มโหมดมืด"
 Ask for a change, e.g. "make it faster" or "add a high-score table"	ขอแก้ไข เช่น "ทำให้เร็วขึ้น" หรือ "เพิ่มตารางคะแนนสูงสุด"
 Ask for a change, e.g. "make the header blue" or "add a contact form"	ขอแก้ไข เช่น "ทำหัวเว็บเป็นสีฟ้า" หรือ "เพิ่มแบบฟอร์มติดต่อ"
@@ -970,6 +971,7 @@ Run a scripted Electron session	รันเซสชัน Electron ที่�
 Run a scripted web session	รันเซสชันเว็บที่เขียนสคริปต์
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	รันเครื่องมือจากพาเลตต์คำสั่ง (Ctrl/⌘ K) หรือเลือกสิ่งที่พบในแผงหลักฐาน
 Run and watch a program	รันและเฝ้าดูโปรแกรม
+Run on Android	เรียกใช้บน Android
 Run to study	รันเพื่อศึกษา
 Running	กำลังรัน
 Running processes	โปรเซสที่กำลังรัน
@@ -1305,6 +1307,7 @@ You answered: {a}	คุณตอบ: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	เพิ่มคีย์ Claude, ChatGPT หรือ OpenRouter โมเดลในเครื่อง (Ollama, LM Studio) หรือเอเจนต์ที่ใช้อยู่ ทีหลังได้ในการตั้งค่า → AI
 You chose:	คุณเลือก:
 You're all set	พร้อมแล้ว
+Your Android app is ready	แอป Android ของคุณพร้อมแล้ว
 Your app is ready	แอปของคุณพร้อมแล้ว
 Your brains	สมองของคุณ
 Your fal.ai key	คีย์ fal.ai ของคุณ

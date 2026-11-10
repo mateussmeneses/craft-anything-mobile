@@ -165,6 +165,7 @@ Ask before running anything	Hỏi trước khi chạy bất cứ thứ gì
 Ask each time	Hỏi mỗi lần
 Ask first	Hỏi trước
 Ask for a change	Yêu cầu một thay đổi
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	Yêu cầu thay đổi, ví dụ "thanh tìm kiếm lớn hơn" hoặc "thêm màn hình cài đặt"
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	Yêu cầu một thay đổi, ví dụ "nút lớn hơn" hoặc "thêm chế độ tối"
 Ask for a change, e.g. "make it faster" or "add a high-score table"	Yêu cầu một thay đổi, ví dụ "làm cho nhanh hơn" hoặc "thêm bảng điểm cao"
 Ask for a change, e.g. "make the header blue" or "add a contact form"	Yêu cầu một thay đổi, ví dụ "đổi phần đầu trang thành màu xanh" hoặc "thêm biểu mẫu liên hệ"
@@ -970,6 +971,7 @@ Run a scripted Electron session	Chạy một phiên Electron theo kịch bản
 Run a scripted web session	Chạy một phiên web theo kịch bản
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	Chạy một công cụ từ bảng lệnh (Ctrl/⌘ K), hoặc chọn một phát hiện trong bảng Bằng chứng.
 Run and watch a program	Chạy và quan sát một chương trình
+Run on Android	Chạy trên Android
 Run to study	Chạy để tìm hiểu
 Running	Đang chạy
 Running processes	Tiến trình đang chạy
@@ -1305,6 +1307,7 @@ You answered: {a}	Bạn đã trả lời: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Bạn có thể thêm khóa Claude, ChatGPT hoặc OpenRouter, một mô hình chạy trên máy (Ollama, LM Studio) hoặc một tác tử bạn đã dùng, sau này trong Cài đặt → AI.
 You chose:	Bạn đã chọn:
 You're all set	Mọi thứ đã sẵn sàng
+Your Android app is ready	Ứng dụng Android của bạn đã sẵn sàng
 Your app is ready	Ứng dụng của bạn đã sẵn sàng
 Your brains	Bộ não AI của bạn
 Your fal.ai key	Khóa fal.ai của bạn

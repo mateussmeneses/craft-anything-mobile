@@ -3,6 +3,7 @@
 //! [`Check`]s that judge a build. A [`KindRegistry`] holds them; add a kind by implementing the
 //! trait and calling [`KindRegistry::register`].
 
+mod android;
 mod app;
 mod game;
 pub mod mechanics;
@@ -13,6 +14,7 @@ pub mod screenshot;
 pub mod self_test;
 pub mod website;
 
+pub use android::AndroidKind;
 pub use app::{AppKind, RUNS_BRIEF};
 pub use game::{CreditsCheck, GameKind};
 pub use mechanics::MechanicsCheck;
@@ -391,7 +393,7 @@ impl Default for KindRegistry {
 impl KindRegistry {
     /// Website, game and app.
     pub fn built_in() -> KindRegistry {
-        KindRegistry { kinds: vec![Arc::new(WebsiteKind), Arc::new(GameKind), Arc::new(AppKind)] }
+        KindRegistry { kinds: vec![Arc::new(WebsiteKind), Arc::new(GameKind), Arc::new(AndroidKind), Arc::new(AppKind)] }
     }
 
     /// Add a kind, or replace the one with the same id.

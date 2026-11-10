@@ -152,6 +152,7 @@ Ask before running anything	Спрашивать перед запуском ч�
 Ask each time	Спрашивать каждый раз
 Ask first	Сначала спросить
 Ask for a change	Попросить об изменении
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	Попросите изменение, например «строка поиска побольше» или «добавь экран настроек»
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	Попросить об изменении, например «кнопки побольше» или «добавить тёмный режим»
 Ask for a change, e.g. "make it faster" or "add a high-score table"	Попросить об изменении, например «сделать быстрее» или «добавить таблицу рекордов»
 Ask for a change, e.g. "make the header blue" or "add a contact form"	Попросить об изменении, например «сделать шапку синей» или «добавить форму контактов»
@@ -967,6 +968,7 @@ Run a scripted Electron session	Запустить записанную сесс
 Run a scripted web session	Запустить записанную веб-сессию
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	Запустите инструмент из палитры команд (Ctrl/⌘ K) или выберите находку на панели «Доказательства».
 Run and watch a program	Запустить и наблюдать за программой
+Run on Android	Запустить на Android
 Run to study	Запустить для изучения
 Running	Выполняется
 Running processes	Выполняющиеся процессы
@@ -1305,6 +1307,7 @@ You answered: {a}	Вы ответили: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Вы можете добавить ключ Claude, ChatGPT или OpenRouter, локальную модель (Ollama, LM Studio) или агент, который уже используете, позже в Настройки → ИИ.
 You chose:	Вы выбрали:
 You're all set	Всё готово
+Your Android app is ready	Ваше приложение для Android готово
 Your app is ready	Ваше приложение готово
 Your brains	Ваши «мозги»
 Your fal.ai key	Ваш ключ fal.ai

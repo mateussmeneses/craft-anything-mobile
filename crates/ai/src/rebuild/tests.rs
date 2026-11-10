@@ -1229,7 +1229,7 @@ impl TargetKind for SlidesKind {
 #[test]
 fn a_registered_kind_is_chosen_from_its_words_and_brings_its_checks() {
     let mut kinds = KindRegistry::built_in();
-    assert_eq!(kinds.ids(), ["website", "game", "app"]);
+    assert_eq!(kinds.ids(), ["website", "game", "android", "app"]);
     kinds.register(Arc::new(SlidesKind));
     let (k, stack) = kinds.choose("Make slides about our product", &TargetRef::None, true).unwrap();
     assert_eq!((k.id(), stack), ("slides", "Markdown slides"));
@@ -1237,7 +1237,7 @@ fn a_registered_kind_is_chosen_from_its_words_and_brings_its_checks() {
     assert_eq!(kinds.choose("A notes tool", &TargetRef::None, true).unwrap().0.id(), "app", "app is still the fallback");
     // Registering the same id again replaces it.
     kinds.register(Arc::new(SlidesKind));
-    assert_eq!(kinds.ids(), ["website", "game", "app", "slides"]);
+    assert_eq!(kinds.ids(), ["website", "game", "android", "app", "slides"]);
 
     let d = tempfile::tempdir().unwrap();
     let ws = Workspace::create(d.path(), "Deck", "Make slides", TargetRef::None).unwrap();

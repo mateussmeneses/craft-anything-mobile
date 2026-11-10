@@ -734,6 +734,7 @@ The builder's questions	Les questions du constructeur
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	Quand le constructeur a un choix à faire : vous le montrer et attendre, ou le laisser décider et dire ce qu'il a choisi. Chaque projet peut choisir sous sa zone de saisie.
 Study apps by running them	Étudier les applications en les lançant
 When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	Quand vous reconstruisez une application ou un jeu, la lancer une fois pour capturer sa fenêtre et y comparer la reconstruction. Cela exécute ce programme.
+Run on Android	Lancer sur Android
 Run to study	Lancer pour étudier
 Allowed in	Autorisé dans
 Nothing allowed yet.	Rien d'autorisé pour l'instant.
@@ -1011,6 +1012,7 @@ Apply model options	Appliquer les options du modèle
 Approve an agent action	Approuver une action d'un agent
 Architectures	Architectures
 Ask about a build	Poser une question sur une construction
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	Demandez une modification, par ex. « une barre de recherche plus grande » ou « ajoute un écran de réglages »
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	Demander une modification, par ex. "boutons plus grands" ou "ajouter un mode sombre"
 Ask for a change, e.g. "make it faster" or "add a high-score table"	Demander une modification, par ex. "le rendre plus rapide" ou "ajouter un tableau des meilleurs scores"
 Ask the person	Demander à la personne
@@ -1408,6 +1410,7 @@ Write pseudo-C to a folder	Écrire du pseudo-C dans un dossier
 Write the brief	Rédiger le brief
 Write the handoff	Rédiger la passation
 Wrote {what} to {}	{what} écrit dans {}
+Your Android app is ready	Votre app Android est prête
 Your app is ready	Votre application est prête
 Your game is ready	Votre jeu est prêt
 Your website is ready	Votre site web est prêt

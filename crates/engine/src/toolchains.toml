@@ -60,6 +60,15 @@ test = ["mvn", "-q", "-B", "test"]
 local_programs = ["mvnw", "mvnw.cmd"]
 launch = [{ file = "target/*.jar", command = ["java", "-jar", "{file}"], runnable_jar = true }]
 
+# An Android app module (`app/src/main/AndroidManifest.xml`) builds a debug APK, which lands in
+# <module>/build/outputs/apk/debug/. Before plain Gradle, which would only `assemble` a jar.
+[[toolchain]]
+name = "Android (Gradle)"
+found_by = ["*/src/main/AndroidManifest.xml"]
+build = ["gradle", "-q", "assembleDebug"]
+test = ["gradle", "-q", "testDebugUnitTest"]
+local_programs = ["gradlew", "gradlew.bat"]
+
 [[toolchain]]
 name = "Gradle"
 found_by = ["build.gradle", "build.gradle.kts"]

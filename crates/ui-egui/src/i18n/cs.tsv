@@ -165,6 +165,7 @@ Ask before running anything	Před každým spuštěním se zeptat
 Ask each time	Pokaždé se zeptat
 Ask first	Nejprve se zeptat
 Ask for a change	Požádat o změnu
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	Požádejte o změnu, např. „větší vyhledávací pole“ nebo „přidej obrazovku nastavení“
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	Požádejte o změnu, například „větší tlačítka“ nebo „přidat tmavý režim“
 Ask for a change, e.g. "make it faster" or "add a high-score table"	Požádejte o změnu, například „zrychlit“ nebo „přidat tabulku nejlepších skóre“
 Ask for a change, e.g. "make the header blue" or "add a contact form"	Požádejte o změnu, například „změnit záhlaví na modré“ nebo „přidat kontaktní formulář“
@@ -970,6 +971,7 @@ Run a scripted Electron session	Spustit skriptovanou relaci Electron
 Run a scripted web session	Spustit skriptovanou webovou relaci
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	Spusťte nástroj z palety příkazů (Ctrl/⌘ K) nebo vyberte zjištění v panelu Důkazy.
 Run and watch a program	Spustit a pozorovat program
+Run on Android	Spustit v Androidu
 Run to study	Spouštět při průzkumu
 Running	Běží
 Running processes	Běžící procesy
@@ -1305,6 +1307,7 @@ You answered: {a}	Vaše odpověď: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Klíč Claude, ChatGPT nebo OpenRouter, místní model (Ollama, LM Studio) či agenta, kterého již používáte, můžete později přidat v Nastavení → AI.
 You chose:	Vaše volba:
 You're all set	Vše je připraveno
+Your Android app is ready	Vaše aplikace pro Android je hotová
 Your app is ready	Vaše aplikace je hotová
 Your brains	Vaši AI asistenti
 Your fal.ai key	Váš klíč fal.ai

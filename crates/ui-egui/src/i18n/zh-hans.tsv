@@ -165,6 +165,7 @@ Ask before running anything	运行前先询问
 Ask each time	每次询问
 Ask first	先询问我
 Ask for a change	提出修改
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	提出修改，例如“更大的搜索栏”或“添加设置页面”
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	提出修改，例如“把按钮变大”或“添加深色模式”
 Ask for a change, e.g. "make it faster" or "add a high-score table"	提出修改，例如“加快速度”或“添加最高分排行榜”
 Ask for a change, e.g. "make the header blue" or "add a contact form"	提出修改要求，例如“将页眉改成蓝色”或“添加联系表单”
@@ -970,6 +971,7 @@ Run a scripted Electron session	运行 Electron 会话脚本
 Run a scripted web session	运行网页会话脚本
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	从命令面板 (Ctrl/⌘ K) 运行工具，或在“证据”面板中选择一项发现。
 Run and watch a program	运行并观察程序
+Run on Android	在 Android 上运行
 Run to study	运行以研究
 Running	运行中
 Running processes	运行中的进程
@@ -1305,6 +1307,7 @@ You answered: {a}	你的回答：{a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	之后可以在“设置 → AI”中添加 Claude、ChatGPT 或 OpenRouter 密钥、本地模型 (Ollama、LM Studio)，或你正在使用的智能体。
 You chose:	你的选择：
 You're all set	准备就绪
+Your Android app is ready	你的 Android 应用已就绪
 Your app is ready	你的应用已就绪
 Your brains	你的 AI 助手
 Your fal.ai key	你的 fal.ai 密钥

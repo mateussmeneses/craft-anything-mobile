@@ -2357,14 +2357,20 @@ Owner: open · Status: todo
       built ourselves) and `adb_bugreport_save`; and run the adb tools on a physical phone
 
 ### R6.4 Android apps as a kind to make
-Owner: maintainers · Status: todo
-- [ ] **decision** One `mobile` kind with a platform inside it, or `android` and `ios` kinds
-- [ ] An Android `TargetKind`: recognised from an APK target or the request's words; brief sections
-      for what was studied; its checks
-- [ ] Stacks in `stacks.toml`: Kotlin + Jetpack Compose (default), Kotlin + Views, Flutter, React
+Owner: maintainers · Status: in progress
+- [x] **decision** One `mobile` kind with a platform inside it, or `android` and `ios` kinds:
+      separate `android` and `ios` kinds (maintainer, 2026-11-10), so Android needn't wait for a Mac
+- [x] An Android `TargetKind`: recognised from an APK target or the request's words; brief sections
+      for what was studied; its checks (`android`: from a package target, an Android stack or the
+      words; checked by building for now)
+- [x] Stacks in `stacks.toml`: Kotlin + Jetpack Compose (default), Kotlin + Views, Flutter, React
       Native, .NET MAUI, Kotlin Multiplatform; found in a person's own folder by their files
-- [ ] An Android toolchain in `toolchains.toml` (before plain Gradle): `assembleDebug`, where the
-      APK lands, and a launch recipe that installs and starts it on the chosen device
+      (Compose by its app module's manifest, Flutter by pubspec.yaml, React Native by its dependency;
+      Views, MAUI and Multiplatform only when asked for by name)
+- [x] An Android toolchain in `toolchains.toml` (before plain Gradle): `assembleDebug`, where the
+      APK lands
+- [ ] Its launch recipe: install the built APK on the chosen device and start it (Play), which
+      needs a device choice a recipe of one command can't carry
 - [ ] `InstallCheck`: the built APK installs, starts and stays up; a crash in the log fails it with
       the stack trace as the note
 

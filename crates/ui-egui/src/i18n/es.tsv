@@ -165,6 +165,7 @@ Ask before running anything	Preguntar antes de ejecutar cualquier cosa
 Ask each time	Preguntar cada vez
 Ask first	Preguntar primero
 Ask for a change	Pedir un cambio
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	Pide un cambio, p. ej. "una barra de búsqueda más grande" o "añade una pantalla de ajustes"
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	Pide un cambio, p. ej. "botones más grandes" o "agrega un modo oscuro"
 Ask for a change, e.g. "make it faster" or "add a high-score table"	Pide un cambio, p. ej. "hazlo más rápido" o "agrega una tabla de récords"
 Ask for a change, e.g. "make the header blue" or "add a contact form"	Pide un cambio, p. ej. "haz el encabezado azul" o "agrega un formulario de contacto"
@@ -970,6 +971,7 @@ Run a scripted Electron session	Ejecutar una sesión de Electron con script
 Run a scripted web session	Ejecutar una sesión web con script
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	Ejecuta una herramienta desde la paleta de comandos (Ctrl/⌘ K), o elige un hallazgo en el panel de Evidencia.
 Run and watch a program	Ejecutar y observar un programa
+Run on Android	Ejecutar en Android
 Run to study	Ejecutar para estudiar
 Running	Ejecutando
 Running processes	Procesos en ejecución
@@ -1305,6 +1307,7 @@ You answered: {a}	Respondiste: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Puedes agregar una clave de Claude, ChatGPT u OpenRouter, un modelo local (Ollama, LM Studio) o un agente que ya uses, después en Configuración → IA.
 You chose:	Elegiste:
 You're all set	Todo listo
+Your Android app is ready	Tu app de Android está lista
 Your app is ready	Tu app está lista
 Your brains	Tus IA
 Your fal.ai key	Tu clave de fal.ai

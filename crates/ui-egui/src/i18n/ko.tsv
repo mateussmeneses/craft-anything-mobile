@@ -165,6 +165,7 @@ Ask before running anything	실행 전에 항상 묻기
 Ask each time	매번 묻기
 Ask first	먼저 묻기
 Ask for a change	변경 요청
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	변경을 요청하세요. 예: "더 큰 검색창" 또는 "설정 화면 추가"
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	변경 요청. 예: "버튼을 더 크게" 또는 "다크 모드 추가"
 Ask for a change, e.g. "make it faster" or "add a high-score table"	변경 요청. 예: "더 빠르게" 또는 "최고 점수 표 추가"
 Ask for a change, e.g. "make the header blue" or "add a contact form"	변경 요청. 예: "헤더를 파란색으로" 또는 "문의 양식 추가"
@@ -970,6 +971,7 @@ Run a scripted Electron session	스크립트로 Electron 세션 실행
 Run a scripted web session	스크립트로 웹 세션 실행
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	명령 팔레트(Ctrl/⌘ K)에서 도구를 실행하거나, 근거 패널에서 발견 하나를 고르세요.
 Run and watch a program	프로그램을 실행하며 지켜보기
+Run on Android	Android에서 실행
 Run to study	실행하며 분석
 Running	실행 중
 Running processes	실행 중인 프로세스
@@ -1305,6 +1307,7 @@ You answered: {a}	내 답: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Claude, ChatGPT, OpenRouter 키나 로컬 모델(Ollama, LM Studio), 이미 쓰는 에이전트는 나중에 설정 → AI에서 추가할 수 있습니다.
 You chose:	고른 항목:
 You're all set	준비를 마쳤습니다
+Your Android app is ready	Android 앱이 준비되었습니다
 Your app is ready	앱이 완성되었습니다
 Your brains	내 AI
 Your fal.ai key	내 fal.ai 키

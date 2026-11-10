@@ -21,6 +21,41 @@
 # A `[[library]]` is a component or styling library asked for on top of a stack ("shadcn",
 # "tailwind"): its `steps` are added to the stack's for the `stacks` it works with.
 #
+# Android apps. They come before "Builder's choice" so a person's own Android project, which has
+# build.gradle too, is named for what it is.
+[[stack]]
+name = "Flutter"
+asked_by = [" in flutter ", " with flutter ", " using flutter ", " use flutter "]
+found_by = ["pubspec.yaml"]
+steps = "Use Flutter with Dart. Create the project directly in app/ (pubspec.yaml, lib/main.dart and the android/ folder `flutter create` makes, with a package name of your own), then run `flutter build apk --debug` from app/ until it succeeds; the APK lands in app/build/app/outputs/flutter-apk/."
+
+[[stack]]
+name = "React Native"
+asked_by = [" react native ", " in expo ", " with expo "]
+uses = ["react-native"]
+steps = "Use React Native with TypeScript. Create the project directly in app/ (package.json with react and react-native, the android/ folder with its Gradle wrapper, and a package name of your own), run `npm install`, then build the debug APK with `gradlew assembleDebug` from app/android/ until it succeeds; it lands in app/android/app/build/outputs/apk/debug/. Bundle the JavaScript into the APK (no development server is running when it is checked)."
+
+[[stack]]
+name = ".NET MAUI"
+asked_by = [" maui ", " in xamarin ", " with xamarin "]
+steps = "Use .NET MAUI with C#, for Android only (net9.0-android or newer). Create the project directly in app/ with an application id of your own, then run `dotnet build -f <its android framework> -c Debug` from app/ until it succeeds; the APK lands under app/bin/Debug/."
+
+[[stack]]
+name = "Kotlin Multiplatform"
+asked_by = [" kotlin multiplatform ", " kmp ", " compose multiplatform "]
+steps = "Use Kotlin Multiplatform with Compose Multiplatform for the screens: a shared module for the code and screens, and an Android app module (androidApp or composeApp) with its own src/main/AndroidManifest.xml and a package name of your own, with the Gradle wrapper. Build the debug APK with `gradlew assembleDebug` from app/ until it succeeds; it lands in <the app module>/build/outputs/apk/debug/."
+
+[[stack]]
+name = "Kotlin + Android Views"
+asked_by = [" android views ", " xml layouts "]
+steps = "Use Kotlin with Android Views: screens laid out in res/layout/*.xml, AppCompat and Material components, ViewModel for state. Create the project directly in app/: settings.gradle.kts, build.gradle.kts and an app module (app/app/build.gradle.kts, app/app/src/main/AndroidManifest.xml) with a package name of your own and the Gradle wrapper (gradlew, gradlew.bat, gradle/wrapper/). Build with `gradlew assembleDebug` from app/ until it succeeds; the APK lands in app/app/build/outputs/apk/debug/."
+
+[[stack]]
+name = "Kotlin + Jetpack Compose"
+asked_by = [" jetpack compose ", " android compose "]
+found_by = ["app/src/main/AndroidManifest.xml"]
+steps = "Use Kotlin with Jetpack Compose and Material 3: one activity (ComponentActivity with setContent), screens as composable functions, ViewModel for state, Navigation Compose between screens. Create the project directly in app/: settings.gradle.kts, build.gradle.kts and an app module (app/app/build.gradle.kts, app/app/src/main/AndroidManifest.xml) with a package name of your own, minSdk 24 or higher, and the Gradle wrapper (gradlew, gradlew.bat, gradle/wrapper/). Build with `gradlew assembleDebug` from app/ until it succeeds; the APK lands in app/app/build/outputs/apk/debug/."
+
 [[stack]]
 name = "Builder's choice"
 found_by = ["package.json", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts", "*.sln", "*.csproj", "Gemfile", "composer.json", "CMakeLists.txt", "Makefile"]

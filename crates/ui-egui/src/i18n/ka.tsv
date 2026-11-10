@@ -200,6 +200,7 @@ Ask before running anything	ნებისმიერი რამის გ�
 Ask each time	ყოველ ჯერზე კითხვა
 Ask first	ჯერ კითხვა
 Ask for a change	ცვლილების მოთხოვნა
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	მოითხოვეთ ცვლილება, მაგ. „უფრო დიდი ძიების ზოლი“ ან „დაამატე პარამეტრების ეკრანი“
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	მოითხოვეთ ცვლილება, მაგ. „უფრო დიდი ღილაკები“ ან „ბნელი რეჟიმის დამატება“
 Ask for a change, e.g. "make it faster" or "add a high-score table"	მოითხოვეთ ცვლილება, მაგ. „გახადე უფრო სწრაფი“ ან „რეკორდების ცხრილის დამატება“
 Ask for a change, e.g. "make the header blue" or "add a contact form"	მოითხოვეთ ცვლილება, მაგ. „ზედა ზოლი გახადე ლურჯი“ ან „საკონტაქტო ფორმის დამატება“
@@ -985,6 +986,7 @@ Run a scripted Electron session	Electron-ის სკრიპტული ს�
 Run a scripted web session	სკრიპტული ვებსესიის გაშვება
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	გაუშვით ხელსაწყო ბრძანებების პალიტრიდან (Ctrl/⌘ K) ან აირჩიეთ მიგნება „მტკიცებულებების“ პანელში.
 Run and watch a program	პროგრამის გაშვება და დაკვირვება
+Run on Android	Android-ზე გაშვება
 Run to study	გაშვება შესასწავლად
 Running	მუშაობს
 Running processes	გაშვებული პროცესები
@@ -1325,6 +1327,7 @@ You answered: {a}	თქვენ უპასუხეთ: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Claude-ის, ChatGPT-ის ან OpenRouter-ის გასაღების, ლოკალური მოდელის (Ollama, LM Studio) ან უკვე გამოყენებული აგენტის დამატება მოგვიანებით შეგიძლიათ აქ: პარამეტრები → AI.
 You chose:	თქვენ აირჩიეთ:
 You're all set	ყველაფერი მზადაა
+Your Android app is ready	თქვენი Android აპი მზადაა
 Your app is ready	თქვენი აპი მზადაა
 Your brains	თქვენი „ტვინები“
 Your fal.ai key	თქვენი fal.ai გასაღები

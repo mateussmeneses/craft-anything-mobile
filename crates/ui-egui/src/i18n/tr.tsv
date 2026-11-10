@@ -165,6 +165,7 @@ Ask before running anything	Bir şey çalıştırmadan önce sor
 Ask each time	Her seferinde sor
 Ask first	Önce sor
 Ask for a change	Bir değişiklik iste
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	Bir değişiklik isteyin, ör. "daha büyük bir arama çubuğu" veya "bir ayarlar ekranı ekle"
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	Bir değişiklik isteyin, ör. "daha büyük düğmeler" veya "koyu tema ekle"
 Ask for a change, e.g. "make it faster" or "add a high-score table"	Bir değişiklik isteyin, ör. "daha hızlı yap" veya "yüksek skor tablosu ekle"
 Ask for a change, e.g. "make the header blue" or "add a contact form"	Bir değişiklik isteyin, ör. "başlığı mavi yap" veya "iletişim formu ekle"
@@ -970,6 +971,7 @@ Run a scripted Electron session	Betikli bir Electron oturumu çalıştır
 Run a scripted web session	Betikli bir web oturumu çalıştır
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	Komut paletinden (Ctrl/⌘ K) bir araç çalıştırın ya da Kanıt panelinden bir bulgu seçin.
 Run and watch a program	Bir programı çalıştır ve izle
+Run on Android	Android'de çalıştır
 Run to study	İncelemek için çalıştır
 Running	Çalışıyor
 Running processes	Çalışan süreçler
@@ -1305,6 +1307,7 @@ You answered: {a}	Yanıtladınız: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Daha sonra Ayarlar → AI bölümünden Claude, ChatGPT veya OpenRouter anahtarı, yerel bir model (Ollama, LM Studio) ya da kullandığınız bir ajan ekleyebilirsiniz.
 You chose:	Seçtiniz:
 You're all set	Her şey hazır
+Your Android app is ready	Android uygulamanız hazır
 Your app is ready	Uygulamanız hazır
 Your brains	Beyinleriniz
 Your fal.ai key	fal.ai anahtarınız

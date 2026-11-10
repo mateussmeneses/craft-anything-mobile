@@ -165,6 +165,7 @@ Ask before running anything	Vor jeder Ausführung fragen
 Ask each time	Jedes Mal fragen
 Ask first	Zuerst fragen
 Ask for a change	Um eine Änderung bitten
+Ask for a change, e.g. "a bigger search bar" or "add a settings screen"	Bitte um eine Änderung, z. B. „eine größere Suchleiste“ oder „füge einen Einstellungsbildschirm hinzu“
 Ask for a change, e.g. "bigger buttons" or "add a dark mode"	Um eine Änderung bitten, z. B. „größere Schaltflächen“ oder „einen Dunkelmodus hinzufügen“
 Ask for a change, e.g. "make it faster" or "add a high-score table"	Um eine Änderung bitten, z. B. „mach es schneller“ oder „füge eine Bestenliste hinzu“
 Ask for a change, e.g. "make the header blue" or "add a contact form"	Um eine Änderung bitten, z. B. „mach die Kopfzeile blau“ oder „füge ein Kontaktformular hinzu“
@@ -970,6 +971,7 @@ Run a scripted Electron session	Eine skriptgesteuerte Electron-Sitzung ausführe
 Run a scripted web session	Eine skriptgesteuerte Websitzung ausführen
 Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	Führe ein Werkzeug über die Befehlspalette aus (Strg/⌘ K) oder wähle einen Befund im Belege-Bereich.
 Run and watch a program	Ein Programm ausführen und beobachten
+Run on Android	Auf Android starten
 Run to study	Zum Untersuchen ausführen
 Running	Läuft
 Running processes	Laufende Prozesse
@@ -1305,6 +1307,7 @@ You answered: {a}	Du hast geantwortet: {a}
 You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Du kannst später unter Einstellungen → KI einen Claude-, ChatGPT- oder OpenRouter-Schlüssel, ein lokales Modell (Ollama, LM Studio) oder einen Agenten hinzufügen, den du schon nutzt.
 You chose:	Du hast gewählt:
 You're all set	Alles bereit
+Your Android app is ready	Deine Android-App ist fertig
 Your app is ready	Deine App ist fertig
 Your brains	Deine KIs
 Your fal.ai key	Dein fal.ai-Schlüssel
