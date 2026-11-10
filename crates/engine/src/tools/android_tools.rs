@@ -629,7 +629,7 @@ fn android_package_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, 
     let b = ev(ctx, "android_package_show", &pkg, json!({"path": p.path, "include_manifest_xml": p.include_manifest_xml}))
         .result(json!({
             "package": m.package, "version_code": m.version_code, "version_name": m.version_name,
-            "min_sdk": m.min_sdk, "target_sdk": m.target_sdk, "max_sdk": m.max_sdk,
+            "min_sdk": m.min_sdk, "target_sdk": m.target_sdk, "max_sdk": m.max_sdk, "compile_sdk": m.compile_sdk,
             "manifest": manifest, "manifest_xml": manifest_xml,
             "signing": {"schemes": schemes, "v1": v1, "signing_block": block_json},
             "dex": dex_info, "native_libraries": libs,

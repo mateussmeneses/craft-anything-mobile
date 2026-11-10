@@ -2272,7 +2272,7 @@ Owner: open · Status: in progress
       a bundle's base module directly, not only a single APK
 - [ ] Check `android_bundle_show` on a real `.aab` (no bundletool or Gradle here to make one) and
       a real `.xapk`
-- [ ] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
+- [x] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
       exported components and intent filters are already typed fields there
 - [ ] ODEX/VDEX: say what they are and what can't be read from them
 - [x] Which framework an app is built with (Compose, Views, React Native, Flutter, MAUI, Kotlin

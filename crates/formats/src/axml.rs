@@ -546,6 +546,9 @@ pub struct Manifest {
     pub min_sdk: Option<String>,
     pub target_sdk: Option<String>,
     pub max_sdk: Option<String>,
+    /// The SDK the app was compiled against: `compileSdkVersion`, else the older
+    /// `platformBuildVersionCode` the build tools wrote.
+    pub compile_sdk: Option<String>,
     pub uses_permissions: Vec<String>,
     pub declared_permissions: Vec<DeclaredPermission>,
     pub uses_features: Vec<String>,
@@ -609,6 +612,8 @@ pub fn manifest(doc: &Document) -> Manifest {
                         m.package = a.iter().find(|x| x.name == "package").map(|x| x.value.clone());
                         m.version_code = sval(a, "versionCode");
                         m.version_name = sval(a, "versionName");
+                        m.compile_sdk =
+                            sval(a, "compileSdkVersion").or_else(|| a.iter().find(|x| x.name == "platformBuildVersionCode").map(|x| x.value.clone()));
                     }
                     ("manifest", "uses-sdk") => {
                         m.min_sdk = sval(a, "minSdkVersion");

@@ -71,7 +71,7 @@ fn part_facts(doc: &axml::Document) -> Value {
         "version_name": m.version_name,
         "min_sdk": m.min_sdk,
         "target_sdk": m.target_sdk,
-        "compile_sdk": get("compileSdkVersion").or_else(|| get("platformBuildVersionCode")),
+        "compile_sdk": m.compile_sdk,
         "components": m.components.len(),
         "exported_components": m.components.iter().filter(|c| c.exported).count(),
         "permissions": m.uses_permissions.len(),

@@ -292,6 +292,7 @@ mod tests {
                 attr("", "package", "com.example.app", None),
                 attr(ANDROID_NS, "versionCode", "", Some(int_item(7))),
                 attr("", "split", "config.arm64_v8a", None),
+                attr(ANDROID_NS, "compileSdkVersion", "35", None),
             ],
             &[sdk, perm, app],
         );
@@ -300,6 +301,7 @@ mod tests {
         assert_eq!(m.package.as_deref(), Some("com.example.app"));
         assert_eq!((m.version_code.as_deref(), m.min_sdk.as_deref(), m.target_sdk.as_deref()), (Some("7"), Some("24"), Some("34")));
         assert_eq!(m.uses_permissions, vec!["android.permission.INTERNET".to_string()]);
+        assert_eq!(m.compile_sdk.as_deref(), Some("35"));
         assert_eq!(m.application.debuggable, Some(false));
         assert_eq!(m.components.len(), 1);
         assert_eq!(m.components[0].name, "com.example.app.Main");
