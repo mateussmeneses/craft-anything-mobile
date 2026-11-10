@@ -3,6 +3,7 @@
 //! The one exception to bytes in memory is [`zip_file`], which reads an entry from a seekable file.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod aapt_proto;
 pub mod ai_model;
 pub mod apk_sign;
 pub mod arsc;

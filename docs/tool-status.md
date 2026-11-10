@@ -102,6 +102,10 @@ Fixed:
   permissions asked for and 208 held; YouTube installed and not running, its denied run-time
   permissions the same as `dumpsys package` shows. In Clean room it was refused. Not checked: an
   older Android's listing, several displays, a physical phone.
+- Android app in several files (`android_bundle_show`): **New**. Chrome's six split APKs, pulled
+  from the emulator and zipped as `.apks`: package, version code, SDK 32–36 and compile SDK 37,
+  the base (x86_64 code, 73 components), four feature splits and the `config.en` language split.
+  Not checked: a real `.aab` or `.xapk`.
 - Replay a walkthrough (`adb_walkthrough_replay`): **New**. On the emulator above, a 3-step walk
   in Settings (swipe, wait, back) recorded, then replayed from the same screen: 0 of 3 captures
   differ (same app and controls; pictures not byte-identical after the first). Replayed from the

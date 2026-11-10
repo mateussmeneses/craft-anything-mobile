@@ -2193,11 +2193,16 @@ Owner: open · Status: in progress
 - [ ] Say in the Engines settings page which SDK was found
 
 ### R6.2 Android packages beyond one APK
-Owner: open · Status: todo
-- [ ] Open split APKs, `.apks`, `.xapk` and `.aab` as one app: base and splits named, the
+Owner: open · Status: in progress
+- [x] Open split APKs, `.apks`, `.xapk` and `.aab` as one app: base and splits named, the
       manifest read from the base module (an AAB's is protobuf, not binary XML)
-- [ ] `android_package_show`: say minimum, target and compile SDK, exported components and
-      intent filters in typed fields (check what it already reports first)
+      (`android_bundle_show`, `formats::aapt_proto`)
+- [ ] Let the other `android_*` tools (classes, resources, components) read a set's base APK or
+      a bundle's base module directly, not only a single APK
+- [ ] Check `android_bundle_show` on a real `.aab` (no bundletool or Gradle here to make one) and
+      a real `.xapk`
+- [ ] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
+      exported components and intent filters are already typed fields there
 - [ ] ODEX/VDEX: say what they are and what can't be read from them
 - [ ] Which framework an app is built with (Compose, Views, React Native, Flutter, MAUI, Kotlin
       Multiplatform, a WebView shell), each with the evidence that says so and its confidence

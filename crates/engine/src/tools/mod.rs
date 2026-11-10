@@ -37,6 +37,7 @@ pub mod java_tools;
 // A connected Android phone or emulator over adb, plus managed engine installs.
 pub mod adb_tools;
 // The Android SDK and its virtual devices, read from folders.
+pub mod android_bundle_tools;
 pub mod android_sdk_tools;
 // Android virtual devices: list, start and stop.
 pub mod emulator_tools;
@@ -157,6 +158,7 @@ pub fn all() -> Vec<crate::ToolSpec> {
     v.extend(android_tools::specs());
     v.extend(java_tools::specs());
     v.extend(adb_tools::specs());
+    v.extend(android_bundle_tools::specs());
     v.extend(android_sdk_tools::specs());
     v.extend(emulator_tools::specs());
     v.extend(adb_ui_tools::specs());
