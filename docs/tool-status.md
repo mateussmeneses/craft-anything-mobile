@@ -100,8 +100,11 @@ Fixed:
 - Controls on the screen (`adb_ui_show`): **New**. Run on the emulator above against Android 17's
   Settings: 78 controls, 13 interactive; `interactive_only` with `text_contains` "network" returned
   the one row a tap opens, labelled from its two texts, with the row's bounds. Before labels the
-  same call found nothing, because the words sit in a child that takes no tap. Not checked live: a
-  password field, a WebView, a screen that never settles, or a physical phone.
+  same call found nothing, because the words sit in a child that takes no tap. A Wi-Fi password
+  typed into Add network: Android's own dump held it while masked and, after "Show password",
+  marked the field `password="false"`; the tool returned it in that second case until typed text
+  was hidden for every editable field. Rechecked live: neither case returns it. Not checked live:
+  a WebView, a Compose text field, a screen that never settles, or a physical phone.
 - Virtual devices (`adb_emulators_list`, `adb_emulator_start`, `adb_emulator_stop`): **New**. Run
   on Windows 11 with emulator 36.6.11: the list named the device and, once started, its serial
   and finished boot; start (`no_window`) returned after a 30 s boot with serial `emulator-5554`,

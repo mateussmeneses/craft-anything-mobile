@@ -3,8 +3,8 @@
 //! Asks the device for its own description of the screen (`uiautomator dump`) and returns it as a
 //! paged, typed list: each control's class, text, resource id, state and place. It watches from
 //! outside, as a person looking at the screen does, so it runs in Clean room; what it returns is
-//! the app's own text, so it is marked as carrying target content. A password field's text is
-//! never returned.
+//! the app's own text, so it is marked as carrying target content. What a person typed into a
+//! field (a password above all) is never returned.
 
 use super::adb_tools::{adb_for, dev_ev, ensure_online, serial_of};
 use super::native_common::spec;
@@ -32,7 +32,7 @@ pub fn specs() -> Vec<ToolSpec> {
     vec![spec(
         UI_TOOL,
         "Controls on the screen",
-        "Read the controls on a device's screen with `uiautomator dump`: for each, its class, text, content description, resource id, state (clickable, checked, enabled, focused, scrollable, selected), bounds in pixels and its parent, parents before children. A control a person can act on also has a label (its own text, or the texts inside it, as on a list row), and a text that can't be tapped names in acts_through the control a tap on it reaches. Paged with offset and limit (default 200, at most 1000); interactive_only keeps what a person can act on, text_contains keeps controls whose text, description or resource id contains the words (case ignored). Only what is on screen now is listed, and a password field's text is never returned.",
+        "Read the controls on a device's screen with `uiautomator dump`: for each, its class, text, content description, resource id, state (clickable, checked, enabled, focused, scrollable, selected), bounds in pixels and its parent, parents before children. A control a person can act on also has a label (its own text, or the texts inside it, as on a list row), and a text that can't be tapped names in acts_through the control a tap on it reaches. Paged with offset and limit (default 200, at most 1000); interactive_only keeps what a person can act on, text_contains keeps controls whose text, description or resource id contains the words (case ignored). Only what is on screen now is listed, and the text in a field a person types into (a password above all, even one shown in clear) is never returned: such a field says text_hidden.",
         "List the buttons, text and fields on the phone's screen right now.",
         Toolset::Adb,
         Effects::MUTATES_SESSION | Effects::LAUNCHES_PROCESS | Effects::ACCESSES_NETWORK | Effects::CARRIES_TARGET_CONTENT,
@@ -86,15 +86,18 @@ fn page(tree: &UiTree, offset: usize, limit: usize, interactive_only: bool, text
     let packages: BTreeSet<&str> = tree.nodes.iter().map(|n| n.package.as_str()).filter(|p| !p.is_empty()).take(4096).collect();
     let interactive = tree.nodes.iter().filter(|n| n.interactive()).count();
     let with_text = tree.nodes.iter().filter(|n| !n.text.is_empty() || !n.content_desc.is_empty()).count();
-    let passwords = tree.nodes.iter().filter(|n| n.password).count();
+    let hidden = tree.nodes.iter().filter(|n| n.text_hidden).count();
     let screen = tree.nodes.iter().find(|n| n.parent.is_none()).and_then(|n| n.bounds);
 
     let mut limitations = vec![Limitation::new(
         "visible_only",
         "Only what is on screen now is listed. A web page, a game or a custom-drawn view can appear as one control with nothing inside it.",
     )];
-    if passwords > 0 {
-        limitations.push(Limitation::new("password_text_hidden", format!("{passwords} password field(s) are listed without their text.")));
+    if hidden > 0 {
+        limitations.push(Limitation::new(
+            "typed_text_hidden",
+            format!("{hidden} field(s) a person types into are listed without their text (text_hidden); their hint and description are kept."),
+        ));
     }
     if tree.dropped > 0 {
         limitations.push(Limitation::new(
@@ -212,12 +215,17 @@ mod tests {
     #[test]
     fn a_screen_is_summarised_and_listed_without_a_password() {
         let p = page(&screen(), 0, 200, false, None);
-        assert_eq!((p.result["total"].as_u64(), p.result["interactive"].as_u64(), p.result["with_text"].as_u64()), (Some(5), Some(3), Some(3)));
+        assert_eq!(
+            (p.result["total"].as_u64(), p.result["interactive"].as_u64(), p.result["with_text"].as_u64()),
+            (Some(5), Some(3), Some(2)),
+            "the typed user name no longer counts as text"
+        );
         assert_eq!(p.result["screen"]["right"], 1080);
         assert_eq!(p.result["packages"], json!(["com.example.app"]));
         assert_eq!(p.result["nodes"].as_array().map(Vec::len), Some(5));
         assert!(!p.result.to_string().contains("hunter2"));
-        assert_eq!(codes(&p), ["visible_only", "password_text_hidden"]);
+        assert_eq!(codes(&p), ["visible_only", "typed_text_hidden"]);
+        assert!(!p.result.to_string().contains("\"ana\""), "a typed user name is not returned either");
         assert_eq!(p.coverage.status, CoverageStatus::Complete);
         assert!(p.summary.contains("com.example.app"), "{}", p.summary);
     }

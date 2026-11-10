@@ -6,8 +6,11 @@
 //! whatever app is on screen): it never recurses, keeps at most [`MAX_NODES`] nodes and
 //! [`MAX_DEPTH`] levels, cuts long values at [`MAX_VALUE`] bytes, and says when it stopped early.
 //!
-//! A password field's text is never kept: the node says `password: true` and `text` stays empty,
-//! whatever the dump held.
+//! What a person typed into a field is never kept. Android's dump holds a password field's real
+//! text even while the screen masks it, and once the person taps "Show password" the field is no
+//! longer marked as one at all, so the mark can't be relied on: the text of every editable field
+//! ([`is_editable`]) and of every field marked as a password is dropped, and `text_hidden` says so.
+//! Its hint and description, which the app wrote, are kept.
 
 use serde::Serialize;
 
@@ -46,8 +49,10 @@ pub struct UiNode {
     pub class: String,
     pub package: String,
     pub resource_id: String,
-    /// What it shows. Always empty for a password field.
+    /// What it shows. Always empty for an editable field or a password field (`text_hidden`).
     pub text: String,
+    /// The field held text that was left out because a person types it ([`is_editable`]).
+    pub text_hidden: bool,
     pub content_desc: String,
     pub hint: String,
     pub bounds: Option<Bounds>,
@@ -359,11 +364,21 @@ fn node(id: usize, parent: Option<usize>, depth: usize, attrs: &str) -> UiNode {
             _ => {}
         }
     }
-    // Attributes come in any order, so the text is dropped only once `password` is known.
-    if !n.password {
+    // Attributes come in any order, so the text is decided only once class and `password` are known.
+    if n.password || is_editable(&n.class) {
+        n.text_hidden = !text.is_empty();
+    } else {
         n.text = text;
     }
     n
+}
+
+/// Whether a class is a field people type into: Android's `EditText` and its subclasses
+/// (`AutoCompleteTextView`, `TextInputEditText`, an app's own `…EditText`), and Compose's text
+/// fields. Matched by the class name's last part, so a package can't hide one.
+pub fn is_editable(class: &str) -> bool {
+    let name = class.rsplit(['.', '$']).next().unwrap_or(class);
+    ["EditText", "AutoCompleteTextView", "TextField", "SearchView$SearchAutoComplete", "SearchAutoComplete"].iter().any(|k| name.ends_with(k))
 }
 
 /// `[left,top][right,bottom]`.
@@ -416,8 +431,47 @@ mod tests {
             assert_eq!(t.nodes[0].text, "");
             assert!(!serde_json::to_string(&t).unwrap().contains("hunter2"));
         }
-        let plain = parse(&format!("<hierarchy>{}</hierarchy>", n(r#"text="hello" password="false""#, ""))).unwrap();
-        assert_eq!(plain.nodes[0].text, "hello");
+        let plain = parse(&format!("<hierarchy>{}</hierarchy>", n(r#"text="hello" password="false" class="android.widget.TextView""#, ""))).unwrap();
+        assert_eq!((plain.nodes[0].text.as_str(), plain.nodes[0].text_hidden), ("hello", false));
+    }
+
+    #[test]
+    fn a_shown_password_is_still_not_kept_because_no_typed_text_is() {
+        // Seen live on Android 17: after "Show password" the field says password="false" but still
+        // holds what was typed.
+        let shown = r#"text="Hunter2Secret" resource-id="com.android.settings:id/password" class="android.widget.EditText" password="false" hint="""#;
+        for attrs in [
+            shown.to_string(),
+            r#"class="com.google.android.material.textfield.TextInputEditText" text="ana@example.com""#.to_string(),
+            r#"class="android.widget.AutoCompleteTextView" text="query""#.to_string(),
+            r#"class="com.example.app.ui.PinEditText" text="1234""#.to_string(),
+        ] {
+            let t = parse(&format!("<hierarchy>{}</hierarchy>", n(&attrs, ""))).unwrap();
+            let json = serde_json::to_string(&t).unwrap();
+            for secret in ["Hunter2Secret", "ana@example.com", "query", "1234"] {
+                assert!(!json.contains(secret), "{attrs}");
+            }
+            assert!(t.nodes[0].text_hidden && t.nodes[0].text.is_empty(), "{attrs}");
+        }
+        let hint = parse(&format!("<hierarchy>{}</hierarchy>", n(r#"class="android.widget.EditText" text="" hint="Email""#, ""))).unwrap();
+        assert_eq!((hint.nodes[0].hint.as_str(), hint.nodes[0].text_hidden), ("Email", false), "an empty field hides nothing; its hint is the app's");
+    }
+
+    #[test]
+    fn editable_classes_are_told_by_their_last_name() {
+        for yes in [
+            "android.widget.EditText",
+            "EditText",
+            "androidx.appcompat.widget.AppCompatEditText",
+            "android.widget.AutoCompleteTextView",
+            "androidx.compose.material3.TextField",
+            "android.widget.SearchView$SearchAutoComplete",
+        ] {
+            assert!(is_editable(yes), "{yes}");
+        }
+        for no in ["android.widget.TextView", "android.widget.Button", "com.EditText.Widget", "", "android.widget.EditTextLabel"] {
+            assert!(!is_editable(no), "{no}");
+        }
     }
 
     #[test]

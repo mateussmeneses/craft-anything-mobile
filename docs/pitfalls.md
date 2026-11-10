@@ -923,6 +923,12 @@ pane, nothing was flagged as a password, and a password box's text came back as 
 the client-side providers, never read a password field's title or value, treat an unrecognised edit
 box as one, and test against a real window with a secret in it.
 
+**A password mark that the person can take off.** Android's `uiautomator dump` holds a masked
+password field's real text, and once the person taps "Show password" the field says
+`password="false"`, so `adb_ui_show`, which dropped text only for marked fields, returned the
+password. Found by typing a test password into a real form. Never keep what a person typed
+into any editable field, whatever its marks say, and test a secret field shown and hidden.
+
 **A list of tool names that drifted.** The MCP server marked results as untrusted by a list of
 tool names; two of its names no longer existed, so nothing failed and the gap went unseen. Put
 such facts on the tool itself (`Effects::CARRIES_TARGET_CONTENT`), compare `Registry::canonical`
