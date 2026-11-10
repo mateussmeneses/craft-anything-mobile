@@ -102,6 +102,11 @@ Fixed:
   permissions asked for and 208 held; YouTube installed and not running, its denied run-time
   permissions the same as `dumpsys package` shows. In Clean room it was refused. Not checked: an
   older Android's listing, several displays, a physical phone.
+- Compiled Android code (`android_odex_show`): **New**. System files pulled from the emulator
+  (Android 17): `services.odex` and `boot.oat` read as OAT 275 with compiler filter
+  `speed-profile`, an app's `.odex` with `verify`, and their `.vdex` files as VDEX 027 covering
+  3 and 1 DEX files with no bytecode inside. An app's own `oat/` folder can't be read without
+  root; a `.art` image is refused as unknown.
 - App frameworks (`android_frameworks_find`): **New**. On base APKs pulled from the emulator:
   YouTube and Chrome come out as Android Views (layouts found through the resource table, as
   their `res/` paths are shortened), Messages and Settings as Jetpack Compose (strong), with

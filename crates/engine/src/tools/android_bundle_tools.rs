@@ -25,17 +25,76 @@ const MAX_MANIFEST: u64 = 16 << 20;
 const MAX_PARTS: usize = 256;
 
 pub fn specs() -> Vec<ToolSpec> {
-    vec![spec(
-        BUNDLE_TOOL,
-        "Android app in several files",
-        "Read an app shipped as several pieces, as one app: a split APK set (.apks, .xapk or any ZIP holding APKs) or an Android App Bundle (.aab). For each APK or bundle module: whether it is the base, a feature split or a configuration split (and what it configures: ABI, screen density, language), its manifest's package, version, SDK levels and components (a bundle's manifests are protocol buffers, read with a built-in reader), its DEX files and native ABIs. Says when the parts disagree on package or version. A single APK is read as a set of one; use android_package_show for its signing and full manifest.",
-        "See every piece of an Android app that comes in several files, and which piece is which.",
-        Toolset::Android,
-        Effects::EVIDENCE,
-        Requires::Nothing,
-        schema_of::<BundleParams>,
-        android_bundle_show,
-    )]
+    vec![
+        spec(
+            BUNDLE_TOOL,
+            "Android app in several files",
+            "Read an app shipped as several pieces, as one app: a split APK set (.apks, .xapk or any ZIP holding APKs) or an Android App Bundle (.aab). For each APK or bundle module: whether it is the base, a feature split or a configuration split (and what it configures: ABI, screen density, language), its manifest's package, version, SDK levels and components (a bundle's manifests are protocol buffers, read with a built-in reader), its DEX files and native ABIs. Says when the parts disagree on package or version. A single APK is read as a set of one; use android_package_show for its signing and full manifest.",
+            "See every piece of an Android app that comes in several files, and which piece is which.",
+            Toolset::Android,
+            Effects::EVIDENCE,
+            Requires::Nothing,
+            schema_of::<BundleParams>,
+            android_bundle_show,
+        ),
+        spec(
+            ODEX_TOOL,
+            "Compiled Android code (ODEX/VDEX)",
+            "Say what a file Android's runtime made from an app's code is: a .vdex (the format version; for version 027, Android 12 and later, its sections, how many DEX files it covers and whether their bytecode is inside it) or an .odex/.oat (an ELF with machine code compiled from the DEX: its OAT version and the settings dex2oat recorded, such as the compiler filter and command line). Says what can't be read: compiled machine code is not turned back into Java or Kotlin, and an older VDEX layout is only named.",
+            "See what an .odex or .vdex file from an Android device holds, and what can't be read from it.",
+            Toolset::Android,
+            Effects::EVIDENCE,
+            Requires::Nothing,
+            schema_of::<BundleParams>,
+            android_odex_show,
+        ),
+    ]
+}
+
+pub const ODEX_TOOL: &str = "android_odex_show";
+
+fn android_odex_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    use craft_anything_formats::art_files::{self, ArtFile};
+    let p: BundleParams = parse_params(params)?;
+    let input = static_input::load(ctx, p.path.as_deref(), MAX_FILE)?;
+    let file = art_files::parse_vdex(&input.bytes).or_else(|| art_files::parse_oat(&input.bytes)).ok_or_else(|| {
+        ToolError::unsupported(format!("{} is neither a VDEX file nor an ELF with an OAT header", input.name))
+            .with_remediation("Pass an .odex, .oat or .vdex file (from /data/app/<app>/oat/<abi>/ on a device).")
+    })?;
+    let mut lims = vec![Limitation::new(
+        "compiled_code_not_decompiled",
+        "Machine code compiled from the DEX is not turned back into Java or Kotlin; read the app's own DEX (in its APK) for that.",
+    )];
+    let summary = match &file {
+        ArtFile::Vdex { version, dex_files, embedded_dex, warnings, .. } => {
+            lims.extend(warnings.iter().take(20).map(|w| Limitation::new("vdex_warning", w.clone())));
+            if *embedded_dex == 0 {
+                lims.push(Limitation::new(
+                    "no_bytecode_inside",
+                    "No DEX bytecode is inside this VDEX (since Android 12 it stays in the APK), so there is no code to read from it.",
+                ));
+            }
+            format!(
+                "{}: VDEX version {version}, {} DEX file(s) covered, {embedded_dex} with their bytecode inside.",
+                input.name,
+                dex_files.map_or("an unknown number of".to_string(), |n| n.to_string())
+            )
+        }
+        ArtFile::Oat { version, settings, embedded_dex, .. } => {
+            let filter = settings.iter().find(|(k, _)| k == "compiler-filter").map_or("not recorded", |(_, v)| v.as_str());
+            format!("{}: OAT version {version} (compiled code), compiler filter {filter}; {embedded_dex} DEX header(s) found in it.", input.name)
+        }
+    };
+    let e = builder(ctx, ODEX_TOOL, input.subject.clone(), json!({"path": p.path}))
+        .authority(Authority::OriginalFiles)
+        .location(Location::new("path", input.path.display().to_string()))
+        .result(json!(file))
+        .summary(summary)
+        .confidence(Confidence::Observed)
+        .limitations(lims)
+        .coverage(Coverage::complete(1))
+        .build()?;
+    Ok(ToolOutput::evidence(e))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -403,6 +462,28 @@ mod tests {
         assert_eq!((r["parts"][0]["module"].as_str(), r["parts"][0]["kind"].as_str()), (Some("base"), Some("base")));
         assert_eq!((r["parts"][0]["dex_files"].as_u64(), &r["parts"][0]["abis"]), (Some(1), &json!(["x86_64"])));
         assert_eq!((r["parts"][1]["module"].as_str(), r["parts"][1]["kind"].as_str()), (Some("maps"), Some("feature")));
+    }
+
+    #[test]
+    fn odex_and_vdex_files_are_named_and_others_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let v = d.path().join("base.vdex");
+        let mut vdex = b"vdex027\0".to_vec();
+        vdex.extend(1u32.to_le_bytes());
+        vdex.extend([0, 0, 0, 0, 24, 0, 0, 0, 4, 0, 0, 0, 1, 2, 3, 4]);
+        std::fs::write(&v, &vdex).unwrap();
+        let r = call(&engine(), ODEX_TOOL, json!({"path": v}));
+        assert_eq!((r["result"]["kind"].as_str(), r["result"]["dex_files"].as_u64()), (Some("vdex"), Some(1)));
+        let codes: Vec<&str> = r["limitations"].as_array().unwrap().iter().filter_map(|l| l["code"].as_str()).collect();
+        assert!(codes.contains(&"no_bytecode_inside"), "{codes:?}");
+        let o = d.path().join("base.odex");
+        std::fs::write(&o, [b"\x7fELF".as_slice(), &[0; 12], b"oat\n238\0compiler-filter\0verify\0"].concat()).unwrap();
+        let r = call(&engine(), ODEX_TOOL, json!({"path": o}));
+        assert_eq!(r["result"]["kind"], "oat");
+        assert!(r["summary"].as_str().unwrap().contains("verify"));
+        let x = d.path().join("x.bin");
+        std::fs::write(&x, b"hello").unwrap();
+        assert_eq!(call_err(&engine(), ODEX_TOOL, json!({"path": x})).code, ErrorCode::NotSupported);
     }
 
     #[test]

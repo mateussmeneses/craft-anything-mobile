@@ -7,6 +7,7 @@ pub mod aapt_proto;
 pub mod ai_model;
 pub mod apk_sign;
 pub mod arsc;
+pub mod art_files;
 pub mod asar;
 pub mod authenticode;
 pub mod axml;

@@ -2274,7 +2274,9 @@ Owner: open · Status: in progress
       a real `.xapk`
 - [x] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
       exported components and intent filters are already typed fields there
-- [ ] ODEX/VDEX: say what they are and what can't be read from them
+- [x] ODEX/VDEX: say what they are and what can't be read from them (`android_odex_show`)
+- [ ] ODEX/VDEX: read the OAT header's fields (instruction set, DEX file list) by version, and
+      an older VDEX layout (before 027); `.art` image files aren't read at all
 - [x] Which framework an app is built with (Compose, Views, React Native, Flutter, MAUI, Kotlin
       Multiplatform, a WebView shell), each with the evidence that says so and its confidence
       (`android_frameworks_find`, signal table in `analysis::android_frameworks`)

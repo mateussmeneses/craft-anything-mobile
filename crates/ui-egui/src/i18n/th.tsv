@@ -284,6 +284,7 @@ Compare two page captures	เปรียบเทียบการเก็บ
 Compare two runs	เปรียบเทียบการรันสองครั้ง
 Compare two screenshots	เปรียบเทียบภาพหน้าจอสองภาพ
 Comparing and rebuilding	กำลังเปรียบเทียบและสร้างใหม่
+Compiled Android code (ODEX/VDEX)	โค้ด Android ที่คอมไพล์แล้ว (ODEX/VDEX)
 Compiled Python file	ไฟล์ Python ที่คอมไพล์แล้ว
 Connect	เชื่อมต่อ
 Connect agent apps	เชื่อมต่อแอปเอเจนต์
