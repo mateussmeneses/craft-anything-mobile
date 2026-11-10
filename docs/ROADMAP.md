@@ -2170,9 +2170,14 @@ Owner: open · Status: todo
       another way in (a clipboard paste or an input method we control)
 - [x] `adb_walkthrough_record`: a named sequence of steps with a picture and a control tree after
       each, saved so a check can replay it
-- [ ] `adb_walkthrough_replay`: run a saved walkthrough again (on the same app, a rebuild or
+- [x] `adb_walkthrough_replay`: run a saved walkthrough again (on the same app, a rebuild or
       another device), asking for any text it kept out, and say per capture what changed; the
       base for R6.5's screen check
+- [ ] Compare a replay's pictures by eye (pixel difference with a tolerance), not only byte for
+      byte; status bars and clocks make every picture differ
+- [ ] `adb_emulator_start` from a shell pipe (`cli … | tail`): the emulator inherits the CLI's
+      own output handle, so the pipe stays open and the command never returns although the CLI
+      exited; start it with only the handles it needs (Windows seen; Unix not checked)
 - [x] App state: current activity, back stack, permissions granted (`adb_app_state_show`)
 - [x] Verify the unverified adb tools on the emulator (shared with R5.7): 20 ran on Android 17
       (API 37, x86_64); see tool-status.md

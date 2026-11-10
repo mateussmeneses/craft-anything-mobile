@@ -28,6 +28,7 @@ use std::path::Path;
 use std::time::Duration;
 
 pub const WALKTHROUGH_TOOL: &str = "adb_walkthrough_record";
+pub const REPLAY_TOOL: &str = "adb_walkthrough_replay";
 /// What `walkthrough.json` says it is.
 pub const FORMAT: &str = "craft-anything-android-walkthrough";
 /// Its version; a change to its shape bumps this and adds a migration step.
@@ -43,22 +44,40 @@ const MAX_NAME: usize = 120;
 const SECRET_WORDS: &[&str] = &["pass", "pwd", "pin", "secret", "otp", "cvv", "cvc", "security code", "token", "senha", "contraseña"];
 
 pub fn specs() -> Vec<ToolSpec> {
-    vec![spec(
-        WALKTHROUGH_TOOL,
-        "Record a walkthrough",
-        "Send a list of steps to a device (the same steps as adb_input_send: tap, long_press, swipe, text, key, wait) and save, before the first step and after each one but a wait, a picture of the screen (step-NN.png) and its controls (step-NN.json, as adb_ui_show reads them), with walkthrough.json saying each step and what came of it. output_directory must be absolute and must not exist yet. settle_ms (default 1000, at most 10000) is how long the screen is given after each step. Typed text is kept in walkthrough.json so the walk can be repeated, except a text step marked secret and any text typed into a field that looks like a password. A step the device refuses ends the walk there; what was recorded so far is kept and says where it stopped. Changes the device.",
-        "Go through an app step by step and save a picture of every screen on the way.",
-        Toolset::Adb,
-        Effects::MUTATES_SESSION
-            | Effects::LAUNCHES_PROCESS
-            | Effects::ACCESSES_NETWORK
-            | Effects::MUTATES_DEVICE
-            | Effects::WRITES_FILESYSTEM
-            | Effects::CARRIES_TARGET_CONTENT,
-        Requires::Engine("adb"),
-        schema_of::<WalkParams>,
-        adb_walkthrough_record,
-    )]
+    vec![
+        spec(
+            WALKTHROUGH_TOOL,
+            "Record a walkthrough",
+            "Send a list of steps to a device (the same steps as adb_input_send: tap, long_press, swipe, text, key, wait) and save, before the first step and after each one but a wait, a picture of the screen (step-NN.png) and its controls (step-NN.json, as adb_ui_show reads them), with walkthrough.json saying each step and what came of it. output_directory must be absolute and must not exist yet. settle_ms (default 1000, at most 10000) is how long the screen is given after each step. Typed text is kept in walkthrough.json so the walk can be repeated, except a text step marked secret and any text typed into a field that looks like a password. A step the device refuses ends the walk there; what was recorded so far is kept and says where it stopped. Changes the device.",
+            "Go through an app step by step and save a picture of every screen on the way.",
+            Toolset::Adb,
+            Effects::MUTATES_SESSION
+                | Effects::LAUNCHES_PROCESS
+                | Effects::ACCESSES_NETWORK
+                | Effects::MUTATES_DEVICE
+                | Effects::WRITES_FILESYSTEM
+                | Effects::CARRIES_TARGET_CONTENT,
+            Requires::Engine("adb"),
+            schema_of::<WalkParams>,
+            adb_walkthrough_record,
+        ),
+        spec(
+            REPLAY_TOOL,
+            "Replay a walkthrough",
+            "Run a walkthrough saved by adb_walkthrough_record again, on the same app, a rebuild of it or another device, saving new captures the same way, and say for each capture what changed from the recording: the app on screen, and the controls a person can act on that were added or removed (by class, id and label; at most 20 named each way), and whether the picture is byte for byte the same. walkthrough is the saved walkthrough.json (or its folder); texts it kept out are given in secrets, in the order they're typed, and are kept out of the new file too. output_directory must be absolute and must not exist yet. Changes the device.",
+            "Do a recorded walk through an app again and see which screens came out different.",
+            Toolset::Adb,
+            Effects::MUTATES_SESSION
+                | Effects::LAUNCHES_PROCESS
+                | Effects::ACCESSES_NETWORK
+                | Effects::MUTATES_DEVICE
+                | Effects::WRITES_FILESYSTEM
+                | Effects::CARRIES_TARGET_CONTENT,
+            Requires::Engine("adb"),
+            schema_of::<ReplayParams>,
+            adb_walkthrough_replay,
+        ),
+    ]
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -152,51 +171,61 @@ fn capture(adb: &Adb, serial: &str, dir: &Path, index: usize, step: Value, tree_
     }))
 }
 
-fn manifest(name: Option<&str>, serial: &str, settle_ms: u32, captures: &[Value], stopped: Option<&Value>) -> Value {
+fn manifest(name: Option<&str>, serial: &str, settle_ms: u32, walk: &Walk) -> Value {
     json!({
         "format": FORMAT,
         "version": VERSION,
         "name": name,
         "serial": serial,
         "settle_ms": settle_ms,
-        "captures": captures,
-        "complete": stopped.is_none(),
-        "stopped": stopped,
+        "steps": walk.steps,
+        "captures": walk.captures,
+        "complete": walk.stopped.is_none(),
+        "stopped": walk.stopped,
     })
 }
 
-fn adb_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    let p: WalkParams = parse_params(params)?;
-    let serial = serial_of(&p.serial)?;
-    let commands = android_input::commands(&p.steps)?;
-    let settle_ms = p.settle_ms.unwrap_or(DEFAULT_SETTLE_MS);
-    if settle_ms > android_input::MAX_WAIT_MS {
-        return Err(ToolError::invalid(format!("settle_ms can be at most {}.", android_input::MAX_WAIT_MS)));
-    }
-    if p.name.as_ref().is_some_and(|n| n.len() > MAX_NAME || n.chars().any(char::is_control)) {
-        return Err(ToolError::invalid(format!("name must be one line of at most {MAX_NAME} bytes.")));
-    }
-    let adb = adb_for(ctx)?.timeout(STEP_TIMEOUT.max(DUMP_TIMEOUT)).idle_timeout(STEP_TIMEOUT.max(DUMP_TIMEOUT));
-    ensure_online(&adb, serial)?;
-    let dir = create_absent_dir(&p.output_directory)?;
-    let made = UnlessWritten::new(&dir);
-    let settle = Duration::from_millis(u64::from(settle_ms));
+/// What a walk on the device came to.
+struct Walk {
+    /// Every step sent (waits too), as the file keeps them.
+    steps: Vec<Value>,
+    captures: Vec<Value>,
+    stopped: Option<Value>,
+    secrets: usize,
+}
 
+/// Send `steps` one by one, capturing the screen before the first and after each but a wait.
+/// A text step whose `keep_out` is true is kept out of the record whatever the screen shows.
+#[allow(clippy::too_many_arguments)]
+fn walk(
+    ctx: &mut Ctx<'_>,
+    adb: &Adb,
+    serial: &str,
+    dir: &Path,
+    steps: &[Step],
+    commands: &[Command],
+    settle: Duration,
+    keep_out: &[bool],
+) -> Result<Walk, ToolError> {
     let mut tree: Option<UiTree> = None;
-    let mut captures = vec![capture(&adb, serial, &dir, 0, Value::Null, &mut tree)?];
+    let mut captures = vec![capture(adb, serial, dir, 0, Value::Null, &mut tree)?];
     let mut stopped: Option<Value> = None;
     let mut secrets = 0usize;
+    let mut kept = Vec::new();
     let total = commands.len();
-    for (i, (step, command)) in p.steps.iter().zip(&commands).enumerate() {
+    for (i, (step, command)) in steps.iter().zip(commands).enumerate() {
         if ctx.cancel.is_cancelled() {
             stopped = Some(json!({"before_step": i.saturating_add(1), "reason": "stopped by the person"}));
             break;
         }
         ctx.report(Some(i as f32 / total as f32), format!("Step {} of {total}", i.saturating_add(1)));
         // Text typed into a field that looks like a password is kept out, marked or not.
-        let secret =
-            matches!(step, Step::Text { secret: true, .. }) || (matches!(step, Step::Text { .. }) && tree.as_ref().and_then(focused).is_some_and(looks_secret));
+        let secret = matches!(step, Step::Text { .. })
+            && (matches!(step, Step::Text { secret: true, .. })
+                || keep_out.get(i).copied().unwrap_or(false)
+                || tree.as_ref().and_then(focused).is_some_and(looks_secret));
         secrets = secrets.saturating_add(usize::from(secret));
+        kept.push(recorded(step, secret));
         match command {
             Command::Pause(ms) => {
                 std::thread::sleep(Duration::from_millis(u64::from(*ms)));
@@ -219,14 +248,43 @@ fn adb_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
             }
         }
         std::thread::sleep(settle);
-        captures.push(capture(&adb, serial, &dir, captures.len(), recorded(step, secret), &mut tree)?);
+        captures.push(capture(adb, serial, dir, captures.len(), recorded(step, secret), &mut tree)?);
     }
+    Ok(Walk { steps: kept, captures, stopped, secrets })
+}
 
+fn check_settle(settle_ms: u32) -> Result<Duration, ToolError> {
+    if settle_ms > android_input::MAX_WAIT_MS {
+        return Err(ToolError::invalid(format!("settle_ms can be at most {}.", android_input::MAX_WAIT_MS)));
+    }
+    Ok(Duration::from_millis(u64::from(settle_ms)))
+}
+
+fn write_manifest(dir: &Path, doc: &Value) -> Result<std::path::PathBuf, ToolError> {
     let file = dir.join("walkthrough.json");
-    let doc = manifest(p.name.as_deref(), serial, settle_ms, &captures, stopped.as_ref());
-    let text = serde_json::to_vec_pretty(&doc).map_err(|e| ToolError::new(ErrorCode::Internal, e.to_string()))?;
+    let text = serde_json::to_vec_pretty(doc).map_err(|e| ToolError::new(ErrorCode::Internal, e.to_string()))?;
     write_atomic(&file, &text)?;
+    Ok(file)
+}
+
+fn adb_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: WalkParams = parse_params(params)?;
+    let serial = serial_of(&p.serial)?;
+    let commands = android_input::commands(&p.steps)?;
+    let settle_ms = p.settle_ms.unwrap_or(DEFAULT_SETTLE_MS);
+    let settle = check_settle(settle_ms)?;
+    if p.name.as_ref().is_some_and(|n| n.len() > MAX_NAME || n.chars().any(char::is_control)) {
+        return Err(ToolError::invalid(format!("name must be one line of at most {MAX_NAME} bytes.")));
+    }
+    let adb = adb_for(ctx)?.timeout(STEP_TIMEOUT.max(DUMP_TIMEOUT)).idle_timeout(STEP_TIMEOUT.max(DUMP_TIMEOUT));
+    ensure_online(&adb, serial)?;
+    let dir = create_absent_dir(&p.output_directory)?;
+    let made = UnlessWritten::new(&dir);
+
+    let w = walk(ctx, &adb, serial, &dir, &p.steps, &commands, settle, &[])?;
+    let file = write_manifest(&dir, &manifest(p.name.as_deref(), serial, settle_ms, &w))?;
     made.keep();
+    let Walk { captures, stopped, secrets, .. } = w;
 
     let problems: usize = captures.iter().map(|c| c["problems"].as_array().map_or(0, Vec::len)).sum();
     let mut lims = vec![Limitation::new("device_changed", "This acted on the device's screen.")];
@@ -243,7 +301,7 @@ fn adb_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         ));
     }
     let summary = match &stopped {
-        None => format!("Recorded {} capture(s) over {total} step(s) to {}.", captures.len(), dir.display()),
+        None => format!("Recorded {} capture(s) over {} step(s) to {}.", captures.len(), p.steps.len(), dir.display()),
         Some(_) => format!("Recorded {} capture(s) before the walk ended early; saved to {}.", captures.len(), dir.display()),
     };
     let mut coverage = Coverage::complete(captures.len() as u64);
@@ -261,6 +319,216 @@ fn adb_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     .summary(summary)
     .limitations(lims)
     .location(Location::new("path", file.to_string_lossy()))
+    .coverage(coverage)
+    .build()?;
+    Ok(ToolOutput::evidence(e))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ReplayParams {
+    /// Device serial from adb_devices_find (e.g. emulator-5554).
+    serial: String,
+    /// Absolute path of a walkthrough.json written by adb_walkthrough_record (or its folder).
+    walkthrough: String,
+    /// Absolute host folder that must not exist yet; the new captures go there.
+    output_directory: String,
+    /// The texts the walk kept out (secret ones), in the order they're typed.
+    #[serde(default)]
+    secrets: Vec<String>,
+    /// How long the screen is given after each step, in milliseconds (default: the recording's).
+    #[serde(default)]
+    settle_ms: Option<u32>,
+}
+
+/// Largest walkthrough.json or controls file read back.
+const MAX_SAVED: u64 = 8 * 1024 * 1024;
+/// Largest saved picture read back to compare.
+const MAX_PICTURE: u64 = 64 * 1024 * 1024;
+/// Controls named per capture as added or removed.
+const MAX_LISTED: usize = 20;
+
+fn read_capped(path: &Path, cap: u64) -> Result<Vec<u8>, ToolError> {
+    let len = std::fs::metadata(path).map_err(|e| ToolError::new(ErrorCode::NotFound, format!("Can't read {}: {e}", path.display())))?.len();
+    if len > cap {
+        return Err(ToolError::invalid(format!("{} is larger than {cap} bytes.", path.display())));
+    }
+    std::fs::read(path).map_err(|e| ToolError::new(ErrorCode::NotFound, format!("Can't read {}: {e}", path.display())))
+}
+
+/// The steps of a saved walk, with the kept-out texts filled from `secrets` in order, and for each
+/// whether its text was kept out. Also whether waits are known (files that list every step).
+fn saved_steps(doc: &Value, secrets: &[String]) -> Result<(Vec<Step>, Vec<bool>, bool), ToolError> {
+    let listed = doc.get("steps").and_then(Value::as_array).filter(|s| !s.is_empty());
+    let source: Vec<&Value> = match listed {
+        Some(s) => s.iter().collect(),
+        None => {
+            doc.get("captures").and_then(Value::as_array).map(|c| c.iter().filter_map(|c| c.get("step")).filter(|s| !s.is_null()).collect()).unwrap_or_default()
+        }
+    };
+    let needed = source.iter().filter(|s| s.get("action").and_then(Value::as_str) == Some("text") && !s.get("text").is_some_and(Value::is_string)).count();
+    if needed != secrets.len() {
+        return Err(ToolError::invalid(format!(
+            "The walk kept out {needed} text(s); give exactly that many in secrets, in the order they're typed ({} given).",
+            secrets.len()
+        )));
+    }
+    let mut left = secrets.iter();
+    let mut steps = Vec::with_capacity(source.len());
+    let mut kept_out = Vec::with_capacity(source.len());
+    for (i, s) in source.iter().enumerate() {
+        if s.get("action").and_then(Value::as_str) == Some("text") {
+            let (text, out) = match s.get("text").and_then(Value::as_str) {
+                Some(t) => (t.to_string(), s.get("secret").and_then(Value::as_bool).unwrap_or(false)),
+                None => (left.next().cloned().unwrap_or_default(), true),
+            };
+            steps.push(Step::Text { text, secret: out });
+            kept_out.push(out);
+        } else {
+            let step: Step =
+                serde_json::from_value((*s).clone()).map_err(|e| ToolError::invalid(format!("Saved step {} can't be read: {e}", i.saturating_add(1))))?;
+            steps.push(step);
+            kept_out.push(false);
+        }
+    }
+    Ok((steps, kept_out, listed.is_some()))
+}
+
+/// The controls a person can act on in a saved controls file, each as class, id and label.
+fn control_names(tree: &Value) -> std::collections::BTreeSet<String> {
+    let flag = |n: &Value, k: &str| n.get(k).and_then(Value::as_bool).unwrap_or(false);
+    let text = |n: &Value, k: &str| n.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+    tree.get("nodes")
+        .and_then(Value::as_array)
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter(|n| ["clickable", "long_clickable", "checkable", "scrollable", "focusable"].iter().any(|k| flag(n, k)))
+                .map(|n| {
+                    let class = text(n, "class");
+                    let short = class.rsplit('.').next().unwrap_or_default().to_string();
+                    format!("{short} {} \"{}\"", text(n, "resource_id"), text(n, "label"))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A file a saved capture names, only if it is a plain name in the walk's own folder.
+fn saved_file(dir: &Path, capture: &Value, key: &str) -> Option<std::path::PathBuf> {
+    let name = capture.get(key)?.as_str()?;
+    let plain =
+        !name.is_empty() && name.len() <= 64 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') && !name.starts_with('.');
+    plain.then(|| dir.join(name))
+}
+
+/// What changed between a saved capture and the new one.
+fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Value) -> Value {
+    let index = new.get("index").cloned().unwrap_or(Value::Null);
+    let Some(old) = old else {
+        return json!({"index": index, "original": false, "changed": true});
+    };
+    let tree = |dir: &Path, c: &Value| {
+        saved_file(dir, c, "controls").and_then(|p| read_capped(&p, MAX_SAVED).ok()).and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+    };
+    let picture = |dir: &Path, c: &Value| saved_file(dir, c, "screenshot").and_then(|p| read_capped(&p, MAX_PICTURE).ok());
+    let same_app = match (old.get("package").and_then(Value::as_str), new.get("package").and_then(Value::as_str)) {
+        (Some(a), Some(b)) => Some(a == b),
+        _ => None,
+    };
+    let (added, removed, controls_known) = match (tree(old_dir, old), tree(new_dir, new)) {
+        (Some(a), Some(b)) => {
+            let (a, b) = (control_names(&a), control_names(&b));
+            (b.difference(&a).cloned().collect::<Vec<_>>(), a.difference(&b).cloned().collect::<Vec<_>>(), true)
+        }
+        _ => (vec![], vec![], false),
+    };
+    let picture_identical = match (picture(old_dir, old), picture(new_dir, new)) {
+        (Some(a), Some(b)) => Some(a == b),
+        _ => None,
+    };
+    let changed = same_app == Some(false) || !added.is_empty() || !removed.is_empty() || !controls_known;
+    json!({
+        "index": index,
+        "original": true,
+        "changed": changed,
+        "same_app": same_app,
+        "controls_compared": controls_known,
+        "controls_added": added.len(),
+        "controls_removed": removed.len(),
+        "added": added.iter().take(MAX_LISTED).collect::<Vec<_>>(),
+        "removed": removed.iter().take(MAX_LISTED).collect::<Vec<_>>(),
+        "picture_identical": picture_identical,
+    })
+}
+
+fn adb_walkthrough_replay(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: ReplayParams = parse_params(params)?;
+    let serial = serial_of(&p.serial)?;
+    let given = Path::new(&p.walkthrough);
+    if !given.is_absolute() {
+        return Err(ToolError::invalid("walkthrough must be an absolute path."));
+    }
+    let file = if given.is_dir() { given.join("walkthrough.json") } else { given.to_path_buf() };
+    let doc: Value = serde_json::from_slice(&read_capped(&file, MAX_SAVED)?).map_err(|e| ToolError::invalid(format!("{} isn't JSON: {e}", file.display())))?;
+    if doc.get("format").and_then(Value::as_str) != Some(FORMAT) {
+        return Err(ToolError::invalid(format!("{} isn't a walkthrough adb_walkthrough_record wrote.", file.display())));
+    }
+    match doc.get("version").and_then(Value::as_u64) {
+        Some(v) if v == u64::from(VERSION) => {}
+        v => return Err(ToolError::invalid(format!("This reads walkthrough version {VERSION}; the file says {v:?}."))),
+    }
+    let (steps, kept_out, waits_known) = saved_steps(&doc, &p.secrets)?;
+    let commands = android_input::commands(&steps)?;
+    let settle_ms = p.settle_ms.or_else(|| doc.get("settle_ms").and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok())).unwrap_or(DEFAULT_SETTLE_MS);
+    let settle = check_settle(settle_ms)?;
+    let old_dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
+    let adb = adb_for(ctx)?.timeout(STEP_TIMEOUT.max(DUMP_TIMEOUT)).idle_timeout(STEP_TIMEOUT.max(DUMP_TIMEOUT));
+    ensure_online(&adb, serial)?;
+    let dir = create_absent_dir(&p.output_directory)?;
+    let made = UnlessWritten::new(&dir);
+
+    let w = walk(ctx, &adb, serial, &dir, &steps, &commands, settle, &kept_out)?;
+    let old_captures = doc.get("captures").and_then(Value::as_array).cloned().unwrap_or_default();
+    let changes: Vec<Value> = w.captures.iter().enumerate().map(|(k, c)| compare_capture(&old_dir, old_captures.get(k), &dir, c)).collect();
+    let mut out = manifest(doc.get("name").and_then(Value::as_str), serial, settle_ms, &w);
+    if let Value::Object(m) = &mut out {
+        m.insert("replay_of".into(), json!(file));
+        m.insert("changes".into(), json!(changes));
+    }
+    let new_file = write_manifest(&dir, &out)?;
+    made.keep();
+
+    let changed = changes.iter().filter(|c| c["changed"].as_bool() == Some(true)).count();
+    let mut lims = vec![Limitation::new("device_changed", "This acted on the device's screen.")];
+    if !waits_known {
+        lims.push(Limitation::new("waits_not_known", "The recording doesn't list its waits (an older file), so they were left out of the replay."));
+    }
+    if let Some(s) = &w.stopped {
+        lims.push(Limitation::new("stopped_early", format!("The replay ended early: {}", s["reason"].as_str().unwrap_or("unknown"))));
+    }
+    if old_captures.len() != w.captures.len() {
+        lims.push(Limitation::new("capture_count_differs", format!("The recording has {} capture(s), the replay {}.", old_captures.len(), w.captures.len())));
+    }
+    lims.push(Limitation::new(
+        "controls_not_pixels",
+        "A capture counts as changed when its app or the controls a person can act on differ; pictures are only compared byte for byte, not by eye.",
+    ));
+    let summary = format!("Replayed {} step(s): {changed} of {} capture(s) differ from the recording. Saved to {}.", steps.len(), changes.len(), dir.display());
+    let mut coverage = Coverage::complete(w.captures.len() as u64);
+    if w.stopped.is_some() {
+        coverage.status = CoverageStatus::Partial;
+    }
+    let e = dev_ev(
+        ctx,
+        REPLAY_TOOL,
+        serial,
+        json!({"serial": serial, "walkthrough": file, "output_directory": dir, "secrets": p.secrets.len(), "settle_ms": settle_ms}),
+    )
+    .result(json!({"file": new_file, "replay_of": file, "complete": w.stopped.is_none(), "stopped": w.stopped, "changed": changed, "changes": changes}))
+    .summary(summary)
+    .limitations(lims)
+    .location(Location::new("path", new_file.to_string_lossy()))
     .coverage(coverage)
     .build()?;
     Ok(ToolOutput::evidence(e))
@@ -307,9 +575,10 @@ mod tests {
 
     #[test]
     fn the_file_says_what_it_is_and_whether_it_finished() {
-        let done = manifest(Some("sign in"), "emulator-5554", 1000, &[json!({"index": 0})], None);
+        let w = |stopped| Walk { steps: vec![], captures: vec![json!({"index": 0})], stopped, secrets: 0 };
+        let done = manifest(Some("sign in"), "emulator-5554", 1000, &w(None));
         assert_eq!((done["format"].as_str(), done["version"].as_u64(), done["complete"].as_bool()), (Some(FORMAT), Some(1), Some(true)));
-        let cut = manifest(None, "emulator-5554", 1000, &[], Some(&json!({"at_step": 2, "reason": "Error: x"})));
+        let cut = manifest(None, "emulator-5554", 1000, &w(Some(json!({"at_step": 2, "reason": "Error: x"}))));
         assert_eq!((cut["complete"].as_bool(), cut["stopped"]["at_step"].as_u64()), (Some(false), Some(2)));
     }
 
@@ -341,6 +610,77 @@ mod tests {
         assert_eq!(ok(json!({"name": "two\nlines"})), ErrorCode::BadInput);
         assert_eq!(ok(json!({"serial": "a b"})), ErrorCode::BadInput);
         assert!(!out.exists(), "nothing is created before the call can run");
+    }
+
+    #[test]
+    fn saved_steps_come_back_with_kept_out_texts_filled_in_order() {
+        let doc = json!({"steps": [
+            {"action": "tap", "x": 1, "y": 2},
+            {"action": "text", "text": null, "secret": true, "characters": 4},
+            {"action": "wait", "ms": 10},
+            {"action": "text", "text": "hi", "secret": false, "characters": 2},
+            {"action": "text", "text": null, "secret": true, "characters": 1},
+        ]});
+        let (steps, out, waits) = saved_steps(&doc, &["abcd".into(), "z".into()]).unwrap();
+        assert!(waits);
+        assert_eq!(out, vec![false, true, false, false, true]);
+        assert_eq!(steps[1], Step::Text { text: "abcd".into(), secret: true });
+        assert_eq!(steps[4], Step::Text { text: "z".into(), secret: true });
+        assert_eq!(steps[3], Step::Text { text: "hi".into(), secret: false });
+        for wrong in [vec![], vec!["a".to_string()], vec!["a".into(), "b".into(), "c".into()]] {
+            assert_eq!(saved_steps(&doc, &wrong).unwrap_err().code, ErrorCode::BadInput);
+        }
+        // An older file without the step list: steps from the captures, waits unknown.
+        let old = json!({"captures": [{"step": null}, {"step": {"action": "key", "key": "back"}}]});
+        let (steps, _, waits) = saved_steps(&old, &[]).unwrap();
+        assert_eq!((steps, waits), (vec![Step::Key { key: "back".into() }], false));
+        assert!(saved_steps(&json!({"steps": [{"action": "reboot"}]}), &[]).is_err());
+    }
+
+    #[test]
+    fn a_capture_is_compared_by_app_and_controls() {
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let tree = |labels: &[&str]| json!({"nodes": labels.iter().map(|l| json!({"class": "android.widget.Button", "resource_id": "", "label": l, "clickable": true})).chain([json!({"class": "android.widget.TextView", "label": "", "text": "x"})]).collect::<Vec<_>>()});
+        std::fs::write(a.path().join("step-01.json"), serde_json::to_vec(&tree(&["OK", "Cancel"])).unwrap()).unwrap();
+        std::fs::write(b.path().join("step-01.json"), serde_json::to_vec(&tree(&["OK", "Help"])).unwrap()).unwrap();
+        std::fs::write(a.path().join("step-01.png"), b"png").unwrap();
+        std::fs::write(b.path().join("step-01.png"), b"png").unwrap();
+        let cap = |pkg: &str| json!({"index": 1, "controls": "step-01.json", "screenshot": "step-01.png", "package": pkg});
+        let c = compare_capture(a.path(), Some(&cap("app")), b.path(), &cap("app"));
+        assert_eq!((c["changed"].as_bool(), c["same_app"].as_bool(), c["picture_identical"].as_bool()), (Some(true), Some(true), Some(true)));
+        assert_eq!(c["added"], json!(["Button  \"Help\""]));
+        assert_eq!(c["removed"], json!(["Button  \"Cancel\""]));
+        let same = compare_capture(a.path(), Some(&cap("app")), a.path(), &cap("app"));
+        assert_eq!(same["changed"].as_bool(), Some(false));
+        assert_eq!(compare_capture(a.path(), Some(&cap("app")), a.path(), &cap("other"))["changed"].as_bool(), Some(true));
+        assert_eq!(compare_capture(a.path(), None, b.path(), &cap("app"))["original"].as_bool(), Some(false));
+        // A name pointing outside the walk's folder is not followed.
+        let outside = json!({"index": 1, "controls": "../step-01.json", "package": "app"});
+        assert_eq!(compare_capture(a.path(), Some(&outside), a.path(), &outside)["controls_compared"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn replay_refuses_a_file_that_is_not_a_walkthrough_before_touching_the_device() {
+        let (e, d) = engine_with_stand_in_adb();
+        let opts = || CallOptions::new(Caller::Mcp).with_consent(Consent::Granted);
+        let out = d.path().join("again");
+        let file = d.path().join("walkthrough.json");
+        let call = |doc: Value, extra: Value| {
+            std::fs::write(&file, serde_json::to_vec(&doc).unwrap()).unwrap();
+            let mut v = json!({"serial": "emulator-5554", "walkthrough": file, "output_directory": out});
+            if let (Value::Object(m), Value::Object(x)) = (&mut v, extra) {
+                m.extend(x);
+            }
+            e.call(REPLAY_TOOL, v, opts()).unwrap_err().code
+        };
+        let good = json!({"format": FORMAT, "version": 1, "steps": [{"action": "text", "text": null, "secret": true, "characters": 3}]});
+        assert_eq!(call(json!({"format": "other", "version": 1}), json!({})), ErrorCode::BadInput);
+        assert_eq!(call(json!({"format": FORMAT, "version": 2, "steps": []}), json!({})), ErrorCode::BadInput);
+        assert_eq!(call(good.clone(), json!({})), ErrorCode::BadInput, "a kept-out text needs its secret");
+        assert_eq!(call(good, json!({"walkthrough": "relative/walkthrough.json", "secrets": ["abc"]})), ErrorCode::BadInput);
+        assert!(!out.exists());
+        let no_consent = e.call(REPLAY_TOOL, json!({"serial": "emulator-5554", "walkthrough": file, "output_directory": out}), CallOptions::new(Caller::Mcp));
+        assert_eq!(no_consent.unwrap_err().code, ErrorCode::ConsentRequired);
     }
 
     #[test]

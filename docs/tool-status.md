@@ -102,6 +102,11 @@ Fixed:
   permissions asked for and 208 held; YouTube installed and not running, its denied run-time
   permissions the same as `dumpsys package` shows. In Clean room it was refused. Not checked: an
   older Android's listing, several displays, a physical phone.
+- Replay a walkthrough (`adb_walkthrough_replay`): **New**. On the emulator above, a 3-step walk
+  in Settings (swipe, wait, back) recorded, then replayed from the same screen: 0 of 3 captures
+  differ (same app and controls; pictures not byte-identical after the first). Replayed from the
+  home screen: 2 of 3 differ (another app, 25 controls added, 13–14 removed). Not checked: a
+  walk with kept-out text, a rebuild, another device, a physical phone.
 - Record a walkthrough (`adb_walkthrough_record`): **New**. Two live walks on the emulator above:
   Settings search (tap, type, two backs: 5 captures, the app on screen changed and came back),
   and Add network (7 steps, 8 captures) with a password typed without `secret` into the field
