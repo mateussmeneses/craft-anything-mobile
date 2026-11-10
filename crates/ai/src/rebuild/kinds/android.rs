@@ -3,6 +3,7 @@
 //! a debug APK, and checked by building.
 
 use super::*;
+use craft_anything_engine::workspace::Claim;
 
 pub struct AndroidKind;
 
@@ -96,7 +97,179 @@ impl TargetKind for AndroidKind {
     }
 
     fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
-        vec![Box::new(BuildCheck)]
+        vec![Box::new(BuildCheck), Box::new(InstallCheck)]
+    }
+}
+
+/// Deepest folder level searched for the built APK under app/.
+const MAX_DEPTH: usize = 10;
+/// Most folder entries looked at while searching.
+const MAX_ENTRIES: usize = 50_000;
+/// How long the app is given after it starts before the screen is read.
+const SETTLE: Duration = Duration::from_secs(6);
+
+/// The newest debug APK a build left under `app` (`…/build/outputs/…/debug/*.apk` or Flutter's
+/// `flutter-apk/app-debug.apk`), searched without following links and with limits.
+pub fn find_debug_apk(app: &Path) -> Option<PathBuf> {
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    let mut stack = vec![(app.to_path_buf(), 0usize)];
+    let mut seen = 0usize;
+    while let Some((dir, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            seen += 1;
+            if seen > MAX_ENTRIES {
+                return best.map(|b| b.1);
+            }
+            let Ok(kind) = e.file_type() else { continue };
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+            if kind.is_dir() && depth < MAX_DEPTH && !matches!(name.as_str(), ".git" | ".gradle" | "node_modules" | ".dart_tool" | "intermediates" | "tmp") {
+                stack.push((path, depth + 1));
+            } else if kind.is_file() && name.ends_with(".apk") {
+                let p = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+                let debug = p.contains("/outputs/") && (p.contains("/debug/") || name.contains("debug"));
+                if debug {
+                    let at = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+                    if best.as_ref().is_none_or(|(t, _)| at > *t) {
+                        best = Some((at, path));
+                    }
+                }
+            }
+        }
+    }
+    best.map(|b| b.1)
+}
+
+/// The package name an APK's manifest gives.
+pub fn apk_package(apk: &[u8]) -> Option<String> {
+    use craft_anything_formats::{axml, zip};
+    let z = zip::parse(apk, 200_000).ok()?;
+    let m = z.entries.iter().find(|e| e.name == "AndroidManifest.xml")?;
+    let doc = axml::parse(&zip::read_entry(apk, m, 16 << 20).ok()?).ok()?;
+    axml::manifest(&doc).package.filter(|p| !p.is_empty())
+}
+
+/// The first device adb lists as ready, from `adb_devices_find`'s result.
+fn first_online(devices: &Value) -> Option<String> {
+    devices.get("devices")?.as_array()?.iter().find(|d| d.get("state").and_then(Value::as_str) == Some("device"))?.get("serial")?.as_str().map(str::to_string)
+}
+
+/// The lines of a crash log that are about `package`'s crash, at most 40.
+fn crash_lines(log: &Value, package: &str) -> Vec<String> {
+    let lines: Vec<&str> = log
+        .get("lines")
+        .and_then(Value::as_array)
+        .map(|l| l.iter().filter_map(|x| x.as_str().or_else(|| x.get("text").and_then(Value::as_str))).collect())
+        .unwrap_or_default();
+    // The last crash of this package: its "FATAL EXCEPTION" line, else the line naming its process.
+    let process = lines.iter().rposition(|l| l.contains("Process: ") && l.contains(package));
+    let start = process.map(|p| lines.iter().take(p + 1).rposition(|l| l.contains("FATAL EXCEPTION")).unwrap_or(p));
+    start.map(|s| lines.iter().skip(s).take(40).map(|l| l.to_string()).collect()).unwrap_or_default()
+}
+
+/// The built APK installs on a device, starts, and is still on screen a few seconds later.
+pub struct InstallCheck;
+
+impl InstallCheck {
+    pub const ID: &'static str = "android-install";
+}
+
+impl Check for InstallCheck {
+    fn id(&self) -> &'static str {
+        Self::ID
+    }
+
+    /// A device the person doesn't have can't be fixed by another build.
+    fn can_refine(&self, result: &CheckResult) -> bool {
+        result.unknowns.is_empty()
+    }
+
+    fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
+        let id = self.id();
+        let round = cx.round;
+        let unknown = |note: String| {
+            let mut r = CheckResult::new(id, round, false, note.clone());
+            r.unknowns.push(note);
+            r
+        };
+        let Some(apk) = find_debug_apk(&cx.ws.app_dir()) else {
+            return Ok(CheckResult::new(
+                id,
+                round,
+                false,
+                "No debug APK was found in app/ after the build. Build it with the stack's own build so it lands under build/outputs/…/debug/.",
+            ));
+        };
+        let bytes = std::fs::read(&apk).map_err(|e| ToolError::io(apk.display(), e))?;
+        let Some(package) = apk_package(&bytes) else {
+            return Ok(CheckResult::new(id, round, false, format!("{} has no readable AndroidManifest.xml naming a package.", apk.display())));
+        };
+        let devices = match cx.call("adb_devices_find", json!({})) {
+            Ok(out) => out.to_json().get("result").cloned().unwrap_or(Value::Null),
+            Err(e) => return Ok(unknown(format!("The build wasn't tried on a device: {}", e.message))),
+        };
+        let Some(serial) = first_online(&devices) else {
+            return Ok(unknown(
+                "The build wasn't tried on a device: no phone or emulator is connected and ready. Start one (adb_emulator_start) to have it checked.".into(),
+            ));
+        };
+        let mut claims = Vec::new();
+        if let Err(e) = cx.call("adb_app_install", json!({"serial": serial, "apk_path": apk.display().to_string(), "replace": true})) {
+            claims.push(Claim::new("The APK installs", false, e.message.clone()));
+            let mut r = CheckResult::new(id, round, false, format!("The APK didn't install on {serial}: {}", e.message));
+            r.claims = claims;
+            return Ok(r);
+        }
+        claims.push(Claim::new("The APK installs", true, ""));
+        if let Err(e) = cx.call("adb_app_launch", json!({"serial": serial, "package": package})) {
+            claims.push(Claim::new("The app starts", false, e.message.clone()));
+            let mut r = CheckResult::new(id, round, false, format!("{package} installed but didn't start: {}", e.message));
+            r.claims = claims;
+            return Ok(r);
+        }
+        // Wait in short steps so a pause or the round's limit still stops it.
+        let until = Instant::now() + SETTLE;
+        while Instant::now() < until {
+            cx.stop().check()?;
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        let screen = cx.call("adb_ui_show", json!({"serial": serial, "limit": 1})).map(|o| o.to_json().get("result").cloned().unwrap_or(Value::Null));
+        let on_screen: Vec<String> = match &screen {
+            Ok(v) => v.get("packages").and_then(Value::as_array).map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect()).unwrap_or_default(),
+            Err(e) => return Ok(unknown(format!("{package} started, but the screen couldn't be read to see whether it stayed up: {}", e.message))),
+        };
+        let up = on_screen.contains(&package);
+        claims.push(Claim::new(
+            "The app is still on screen after it starts",
+            up,
+            format!(
+                "After {} s the screen shows {}, not {package}.",
+                SETTLE.as_secs(),
+                if on_screen.is_empty() { "nothing readable".to_string() } else { on_screen.join(", ") }
+            ),
+        ));
+        let note = if up {
+            format!("{package} installed on {serial}, started and stayed on screen.")
+        } else {
+            // The crash log names why, when this mode may read it.
+            let trace = cx
+                .call("adb_log_read", json!({"serial": serial, "buffer": "crash", "count": 400}))
+                .ok()
+                .map(|o| crash_lines(&o.to_json().get("result").cloned().unwrap_or(Value::Null), &package))
+                .unwrap_or_default();
+            if trace.is_empty() {
+                format!(
+                    "{package} installed on {serial} and started, but it wasn't on screen {} s later (it crashed or closed). No crash log was read.",
+                    SETTLE.as_secs()
+                )
+            } else {
+                format!("{package} crashed after starting on {serial}:\n{}", trace.join("\n"))
+            }
+        };
+        let mut r = CheckResult::new(id, round, up, note);
+        r.claims = claims;
+        Ok(r)
     }
 }
 
@@ -121,6 +294,44 @@ mod tests {
         assert_eq!(detect("um aplicativo android de notas", &none, ""), Some(50));
         assert_eq!(detect("a notes app", &none, ""), None);
         assert_eq!(detect("a desktop app in kotlin", &none, ""), None);
+    }
+
+    #[test]
+    fn the_built_apk_is_found_where_builds_put_it() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(find_debug_apk(d.path()), None);
+        let put = |rel: &str| {
+            let p = d.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"apk").unwrap();
+            p
+        };
+        put("app/build/intermediates/apk/debug/app-debug.apk");
+        put("app/build/outputs/apk/release/app-release.apk");
+        put("libs/other.apk");
+        assert_eq!(find_debug_apk(d.path()), None, "only a build's debug output counts");
+        let want = put("app/build/outputs/apk/debug/app-debug.apk");
+        assert_eq!(find_debug_apk(d.path()), Some(want));
+        let flutter = tempfile::tempdir().unwrap();
+        let p = flutter.path().join("build/app/outputs/flutter-apk/app-debug.apk");
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"apk").unwrap();
+        assert_eq!(find_debug_apk(flutter.path()), Some(p));
+    }
+
+    #[test]
+    fn the_package_device_and_crash_are_read_from_results() {
+        let apk = craft_anything_testkit::android::notes_apk();
+        assert!(apk_package(&apk).is_some_and(|p| p.contains('.')));
+        assert_eq!(apk_package(b"not an apk"), None);
+        let devices = json!({"devices": [{"serial": "x", "state": "offline"}, {"serial": "emulator-5554", "state": "device"}]});
+        assert_eq!(first_online(&devices).as_deref(), Some("emulator-5554"));
+        assert_eq!(first_online(&json!({"devices": []})), None);
+        let log = json!({"lines": ["noise", "E AndroidRuntime: FATAL EXCEPTION: main", "E AndroidRuntime: Process: com.me.notes, PID: 1", "E AndroidRuntime: java.lang.IllegalStateException: boom"]});
+        let t = crash_lines(&log, "com.me.notes");
+        assert_eq!(t.len(), 3);
+        assert!(t[2].contains("IllegalStateException"));
+        assert!(crash_lines(&json!({"lines": ["fine"]}), "com.me.notes").is_empty());
     }
 
     #[test]

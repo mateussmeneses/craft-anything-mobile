@@ -2371,8 +2371,11 @@ Owner: maintainers · Status: in progress
       APK lands
 - [ ] Its launch recipe: install the built APK on the chosen device and start it (Play), which
       needs a device choice a recipe of one command can't carry
-- [ ] `InstallCheck`: the built APK installs, starts and stays up; a crash in the log fails it with
-      the stack trace as the note
+- [x] `InstallCheck`: the built APK installs, starts and stays up; a crash in the log fails it with
+      the stack trace as the note (stays up = still on screen after 6 s, read with `adb_ui_show`; the
+      crash log is read only where Deep mode allows `adb_log_read`)
+- [ ] Run `InstallCheck` live on a real build (needs Gradle or Flutter here), and start an
+      emulator by itself when none is running
 
 ### R6.5 Comparing an Android build with the original
 Owner: open · Status: todo
