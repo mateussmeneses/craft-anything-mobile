@@ -55,6 +55,7 @@ The project should be easy to fork and bend. New features land behind a seam, no
 | M3 Engine depth | More tools, and the known partial ones | open | 314 tools; the open lane |
 | M4 Release | Packaging, signing, a managed tier | maintainers | v0.3.0 released, signed, on every platform; a macOS CLI question and the managed tier remain |
 | M5 Works for real people | What people hit now that the project is public | maintainers | Comes first |
+| M6 Mobile apps | Phone apps get study → build → check → refine: Android first, then iOS | maintainers | Static Android reading and 24 adb tools exist; no mobile kind, stack, emulator or on-device check yet |
 
 ## Open work
 
@@ -87,6 +88,12 @@ Issues are ranked by people affected and how badly, after leaving out what's alr
 | 3 | R1.5 | — | Small leftovers |
 | Any | M3: R3.3, R3.9, R3.11 | — | Open lane |
 | Later | R4.1 macOS CLI, R4.2 Managed tier | **decision** | Not before M5 |
+| Mobile 1 | R6.1 Android environment | — | Everything after it needs to know which SDK, build tools and emulators the computer has |
+| Mobile 1 | R6.2 Android packages beyond one APK | — | Static reading; independent of devices |
+| Mobile 2 | R6.3 Watching an Android app run | R6.1; R5.7's adb checks *(soft)* | The 23 unverified adb tools are its base |
+| Mobile 3 | R6.4 Android apps as a kind to make | R6.1, R6.3 | A build is judged on a device, so it needs install, launch and a picture |
+| Mobile 4 | R6.5 Comparing an Android build with the original | R6.4 | Checks need a build to judge |
+| Mobile 5 | R6.6 iOS | R6.4 *(soft)* | Reuses the seams Android proves; its run-time half needs a Mac |
 
 ---
 
@@ -1937,6 +1944,81 @@ Owner: maintainers · Status: todo
 - [ ] **decision** Managed tier: account backend, usage metering (Claude API under our own key only)
 - [ ] Before the managed tier or any paid offering: confirm the Claude Code orchestration question
       with Anthropic (claude-code.md)
+
+---
+
+## M6 Mobile apps
+
+This fork's direction: the desktop app stays where the work happens, and phone apps become its
+main kind of target, Android first. What exists already is in STATUS.md and `docs/tools.md`
+(`android`, `adb`, `apple`, `frida` toolsets); every item below extends a seam that is there
+(`engines::table`, `ToolSpec`, `TargetKind`, `Check`, `stacks.toml`, `toolchains.toml`) rather than
+adding a parallel mobile layer. Device tools stay honest about what ran: anything not run on a real
+device or emulator is recorded as unverified in `tool-status.md`.
+
+### R6.1 Android environment
+Owner: open · Status: in progress
+- [ ] `engines_android_sdk_check`: find the Android SDK (a given folder, the configured adb's own
+      SDK, `ANDROID_HOME`/`ANDROID_SDK_ROOT`, the usual install folder) and report platform tools,
+      build tools, platforms, NDKs, command-line tools, emulator, system images and the virtual
+      devices with their screen, density, ABI and memory, read from folders only
+      — claimed: mateussmeneses, branch feature/r6.1-android-sdk-check
+- [ ] `adb_emulators_list` and `adb_emulator_start`/`_stop`: start a virtual device through
+      `platform::process` (it hands off; see the pitfall on launchers), wait for `sys.boot_completed`
+- [ ] Find the SDK's own `aapt2`, `apksigner`, `zipalign` and `bundletool` (an engine table entry
+      with a pin for bundletool), so later tools name one lookup
+- [ ] Device profiles as a typed table (resolution, density, API level, ABI, memory) that a check
+      can ask an emulator for
+- [ ] Say in the Engines settings page which SDK was found
+
+### R6.2 Android packages beyond one APK
+Owner: open · Status: todo
+- [ ] Open split APKs, `.apks`, `.xapk` and `.aab` as one app: base and splits named, the
+      manifest read from the base module (an AAB's is protobuf, not binary XML)
+- [ ] `android_package_show`: say minimum, target and compile SDK, exported components and
+      intent filters in typed fields (check what it already reports first)
+- [ ] ODEX/VDEX: say what they are and what can't be read from them
+- [ ] Which framework an app is built with (Compose, Views, React Native, Flutter, MAUI, Kotlin
+      Multiplatform, a WebView shell), each with the evidence that says so and its confidence
+
+### R6.3 Watching an Android app run
+Owner: open · Status: todo
+- [ ] `adb_ui_show`: the screen's control tree (`uiautomator dump`), parsed and bounded; password
+      fields never read (see the pitfall on UI trees)
+- [ ] `adb_input_send`: taps, text, keys and swipes as consented device changes
+- [ ] `adb_walkthrough_record`: a named sequence of steps with a picture and a control tree after
+      each, saved so a check can replay it
+- [ ] App state: current activity, back stack, permissions granted
+- [ ] Verify the 23 unverified adb tools on the emulator (shared with R5.7)
+
+### R6.4 Android apps as a kind to make
+Owner: maintainers · Status: todo
+- [ ] **decision** One `mobile` kind with a platform inside it, or `android` and `ios` kinds
+- [ ] An Android `TargetKind`: recognised from an APK target or the request's words; brief sections
+      for what was studied; its checks
+- [ ] Stacks in `stacks.toml`: Kotlin + Jetpack Compose (default), Kotlin + Views, Flutter, React
+      Native, .NET MAUI, Kotlin Multiplatform; found in a person's own folder by their files
+- [ ] An Android toolchain in `toolchains.toml` (before plain Gradle): `assembleDebug`, where the
+      APK lands, and a launch recipe that installs and starts it on the chosen device
+- [ ] `InstallCheck`: the built APK installs, starts and stays up; a crash in the log fails it with
+      the stack trace as the note
+
+### R6.5 Comparing an Android build with the original
+Owner: open · Status: todo
+- [ ] A screen check: the same walkthrough on both apps, pictures compared, control trees compared
+      by role, text and bounds, each difference said as something to fix
+- [ ] The same check on more than one device profile
+- [ ] Network calls compared in a test environment the person owns (stand-in backend, R3.11)
+
+### R6.6 iOS
+Owner: maintainers · Status: todo
+- [ ] `.ipa` as one app: Info.plist, entitlements, provisioning profile, frameworks, the main
+      Mach-O handed to the `apple` tools
+- [ ] `engines_xcode_check` (macOS): Xcode, simulators and runtimes; on Windows and Linux it says
+      plainly that building and running iOS apps needs a Mac
+- [ ] Simulator tools through `xcrun simctl`: list, boot, install, launch, screenshot
+- [ ] Swift + SwiftUI stack, an Xcode toolchain entry, and the install and screen checks on a
+      simulator
 
 ---
 
