@@ -145,6 +145,7 @@ Answered by {name}	由 {name} 回答
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	由 {brain} 回答問題。要進行建置，請在設定 → AI 中設定程式設計代理。
 App	應用程式
 App details on device	裝置上的應用程式詳細資訊
+App state on device	裝置上的應用程式狀態
 Apple apps	Apple 應用程式
 Apply model options	套用模型選項
 Approve an agent action	核准代理操作

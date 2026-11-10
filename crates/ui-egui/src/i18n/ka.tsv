@@ -181,6 +181,7 @@ Answered by {name}	უპასუხა: {name}
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	პასუხები მოდის {brain}-ისგან. ასაწყობად დააყენეთ პროგრამირების აგენტი აქ: პარამეტრები → AI.
 App	აპი
 App details on device	აპის დეტალები მოწყობილობაზე
+App state on device	აპის მდგომარეობა მოწყობილობაზე
 Apple apps	Apple-ის აპები
 Approve an agent action	აგენტის მოქმედების დადასტურება
 Apps and games: keep refining until they look this alike to your pictures. Off, the likeness is only reported.	აპები და თამაშები: დახვეწის გაგრძელება, სანამ თქვენს სურათებს ამდენად არ დაემსგავსება. გამორთვისას მსგავსება მხოლოდ ანგარიშში ჩანს.

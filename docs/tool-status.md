@@ -97,6 +97,11 @@ Fixed:
   with `count` 200 returned 270 lines: logcat counts entries, and an entry can span lines.
   **Unverified**: `adb_app_install`, `adb_app_remove`, `adb_bugreport_save`, and every tool on a
   physical phone.
+- App state on device (`adb_app_state_show`): **New**. Run on the emulator above in Deep mode:
+  Settings' home activity on screen, 9 tasks, Settings running (one pid) in tasks 7 and 13, 149
+  permissions asked for and 208 held; YouTube installed and not running, its denied run-time
+  permissions the same as `dumpsys package` shows. In Clean room it was refused. Not checked: an
+  older Android's listing, several displays, a physical phone.
 - Record a walkthrough (`adb_walkthrough_record`): **New**. Two live walks on the emulator above:
   Settings search (tap, type, two backs: 5 captures, the app on screen changed and came back),
   and Add network (7 steps, 8 captures) with a password typed without `secret` into the field

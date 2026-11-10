@@ -145,6 +145,7 @@ Answered by {name}	Resposta de {name}
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	As respostas vêm de {brain}. Para criar projetos, configure um agente de programação em Configurações → IA.
 App	Aplicativo
 App details on device	Detalhes do aplicativo no dispositivo
+App state on device	Estado do app no dispositivo
 Apple apps	Aplicativos Apple
 Apply model options	Aplicar opções do modelo
 Approve an agent action	Aprovar uma ação do agente

@@ -1997,8 +1997,7 @@ Owner: open · Status: todo
 - [ ] `adb_walkthrough_replay`: run a saved walkthrough again (on the same app, a rebuild or
       another device), asking for any text it kept out, and say per capture what changed; the
       base for R6.5's screen check
-- [ ] App state: current activity, back stack, permissions granted
-      — claimed: mateussmeneses, branch feature/r6.3-app-state
+- [x] App state: current activity, back stack, permissions granted (`adb_app_state_show`)
 - [x] Verify the unverified adb tools on the emulator (shared with R5.7): 20 ran on Android 17
       (API 37, x86_64); see tool-status.md
 - [ ] Verify the three that are left: `adb_app_install` and `adb_app_remove` (they need an APK we

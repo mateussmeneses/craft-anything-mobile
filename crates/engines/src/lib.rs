@@ -8,6 +8,7 @@
 pub mod adb;
 pub mod android_input;
 pub mod android_sdk;
+pub mod android_state;
 pub mod android_ui;
 pub mod assets;
 pub mod cdp;

@@ -131,6 +131,7 @@ Answered by {name}	Отвечено: {name}
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	Ответы поступают от {brain}. Чтобы собирать, настройте агент кодирования в Настройки → ИИ.
 App	Приложение
 App details on device	Сведения о приложении на устройстве
+App state on device	Состояние приложения на устройстве
 Apple apps	Приложения Apple
 Apply	Применить
 Apply model options	Применить параметры модели

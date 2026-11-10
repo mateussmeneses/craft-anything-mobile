@@ -145,6 +145,7 @@ Answered by {name}	Odpověď od {name}
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	Na otázky odpovídá {brain}. Pro sestavení nastavte programovacího agenta v Nastavení → AI.
 App	Aplikace
 App details on device	Podrobnosti aplikace v zařízení
+App state on device	Stav aplikace v zařízení
 Apple apps	Aplikace Apple
 Apply model options	Použít možnosti modelu
 Approve an agent action	Schválit akci agenta
