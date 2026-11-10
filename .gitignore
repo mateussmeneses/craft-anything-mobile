@@ -16,3 +16,6 @@ corpus/
 *.pfx
 *.key
 .claude/settings.local.json
+
+# AI Workbench private local context
+.ai-workbench/

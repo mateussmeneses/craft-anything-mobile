@@ -1,0 +1,29 @@
+# Template only - review before use. Verify the action version and input names
+# against https://github.com/anthropics/claude-code-action before committing.
+name: AI PR review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    # Secrets are not available to pull requests from forks; skip them explicitly.
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this pull request following the wb-ai-pr-review skill:
+            report only verified defects with a concrete failure scenario,
+            ranked by severity, with file:line references. Do not push commits.
