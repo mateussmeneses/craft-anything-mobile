@@ -168,6 +168,23 @@ fn crash_lines(log: &Value, package: &str) -> Vec<String> {
     start.map(|s| lines.iter().skip(s).take(40).map(|l| l.to_string()).collect()).unwrap_or_default()
 }
 
+/// The first virtual device `adb_emulators_list` names, from its result.
+fn first_virtual_device(list: &Value) -> Option<String> {
+    list.get("virtual_devices")?.as_array()?.iter().find_map(|d| d.get("name")?.as_str().map(str::to_string))
+}
+
+/// Start this computer's first virtual device and return its serial, or say why not. It is left
+/// running, so the person can try the app on it.
+fn start_virtual_device(cx: &CheckCx) -> Result<String, String> {
+    let list = cx.call("adb_emulators_list", json!({})).map_err(|e| format!("its virtual devices couldn't be listed ({}).", e.message))?;
+    let name = first_virtual_device(&list.to_json().get("result").cloned().unwrap_or(Value::Null))
+        .ok_or_else(|| "this computer has no virtual device to start (make one in Android Studio's Device Manager).".to_string())?;
+    let started = cx
+        .call("adb_emulator_start", json!({"name": name, "no_window": true}))
+        .map_err(|e| format!("the virtual device {name} didn't start ({}).", e.message))?;
+    started.to_json().pointer("/result/serial").and_then(Value::as_str).map(str::to_string).ok_or_else(|| format!("the virtual device {name} gave no serial."))
+}
+
 /// The built APK installs on a device, starts, and is still on screen a few seconds later.
 pub struct InstallCheck;
 
@@ -209,10 +226,13 @@ impl Check for InstallCheck {
             Ok(out) => out.to_json().get("result").cloned().unwrap_or(Value::Null),
             Err(e) => return Ok(unknown(format!("The build wasn't tried on a device: {}", e.message))),
         };
-        let Some(serial) = first_online(&devices) else {
-            return Ok(unknown(
-                "The build wasn't tried on a device: no phone or emulator is connected and ready. Start one (adb_emulator_start) to have it checked.".into(),
-            ));
+        let serial = match first_online(&devices) {
+            Some(s) => s,
+            // None is connected: start the first virtual device this computer has, without a window.
+            None => match start_virtual_device(cx) {
+                Ok(s) => s,
+                Err(why) => return Ok(unknown(format!("The build wasn't tried on a device: no phone or emulator is connected and ready, and {why}"))),
+            },
         };
         let mut claims = Vec::new();
         if let Err(e) = cx.call("adb_app_install", json!({"serial": serial, "apk_path": apk.display().to_string(), "replace": true})) {
@@ -327,6 +347,8 @@ mod tests {
         let devices = json!({"devices": [{"serial": "x", "state": "offline"}, {"serial": "emulator-5554", "state": "device"}]});
         assert_eq!(first_online(&devices).as_deref(), Some("emulator-5554"));
         assert_eq!(first_online(&json!({"devices": []})), None);
+        assert_eq!(first_virtual_device(&json!({"virtual_devices": [{"name": "Medium_Phone"}]})).as_deref(), Some("Medium_Phone"));
+        assert_eq!(first_virtual_device(&json!({"virtual_devices": []})), None);
         let log = json!({"lines": ["noise", "E AndroidRuntime: FATAL EXCEPTION: main", "E AndroidRuntime: Process: com.me.notes, PID: 1", "E AndroidRuntime: java.lang.IllegalStateException: boom"]});
         let t = crash_lines(&log, "com.me.notes");
         assert_eq!(t.len(), 3);

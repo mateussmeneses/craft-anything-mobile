@@ -2378,8 +2378,9 @@ Owner: maintainers · Status: in progress
 - [x] `InstallCheck`: the built APK installs, starts and stays up; a crash in the log fails it with
       the stack trace as the note (stays up = still on screen after 6 s, read with `adb_ui_show`; the
       crash log is read only where Deep mode allows `adb_log_read`)
-- [ ] Run `InstallCheck` itself in a live rebuild run, and start an emulator by itself when none
-      is running. Its steps were run by hand on a real Flutter debug APK on an Android 17 emulator:
+- [x] `InstallCheck` starts this computer's first virtual device (no window) when no device is
+      connected, and leaves it running
+- [ ] Run `InstallCheck` itself in a live rebuild run. Its steps were run by hand on a real Flutter debug APK on an Android 17 emulator:
       installed, started, and still on screen 6 s later
 
 ### R6.5 Comparing an Android build with the original
