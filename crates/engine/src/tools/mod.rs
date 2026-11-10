@@ -40,6 +40,8 @@ pub mod adb_tools;
 pub mod android_sdk_tools;
 // Android virtual devices: list, start and stop.
 pub mod emulator_tools;
+// The controls on a device's screen.
+pub mod adb_ui_tools;
 // Frida instrumentation driven through the Frida CLI.
 pub mod frida_tools;
 // Target-free formats: Go, WebAssembly, EVM.
@@ -149,6 +151,7 @@ pub fn all() -> Vec<crate::ToolSpec> {
     v.extend(adb_tools::specs());
     v.extend(android_sdk_tools::specs());
     v.extend(emulator_tools::specs());
+    v.extend(adb_ui_tools::specs());
     v.extend(frida_tools::specs());
     v.extend(format_tools::specs());
     v.extend(database_tools::specs());

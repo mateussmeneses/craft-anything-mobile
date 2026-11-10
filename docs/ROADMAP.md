@@ -1985,9 +1985,10 @@ Owner: open · Status: todo
 
 ### R6.3 Watching an Android app run
 Owner: open · Status: todo
-- [ ] `adb_ui_show`: the screen's control tree (`uiautomator dump`), parsed and bounded; password
+- [x] `adb_ui_show`: the screen's control tree (`uiautomator dump`), parsed and bounded; password
       fields never read (see the pitfall on UI trees)
-      — claimed: mateussmeneses, branch feature/r6.3-ui-tree
+- [ ] Check `adb_ui_show` live on a screen with a real password field (needs `adb_input_send` to
+      reach one); fixtures only so far
 - [ ] `adb_input_send`: taps, text, keys and swipes as consented device changes
 - [ ] `adb_walkthrough_record`: a named sequence of steps with a picture and a control tree after
       each, saved so a check can replay it

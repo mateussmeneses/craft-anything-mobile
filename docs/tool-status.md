@@ -97,6 +97,11 @@ Fixed:
   with `count` 200 returned 270 lines: logcat counts entries, and an entry can span lines.
   **Unverified**: `adb_app_install`, `adb_app_remove`, `adb_bugreport_save`, and every tool on a
   physical phone.
+- Controls on the screen (`adb_ui_show`): **New**. Run on the emulator above against Android 17's
+  Settings: 78 controls, 13 interactive; `interactive_only` with `text_contains` "network" returned
+  the one row a tap opens, labelled from its two texts, with the row's bounds. Before labels the
+  same call found nothing, because the words sit in a child that takes no tap. Not checked live: a
+  password field, a WebView, a screen that never settles, or a physical phone.
 - Virtual devices (`adb_emulators_list`, `adb_emulator_start`, `adb_emulator_stop`): **New**. Run
   on Windows 11 with emulator 36.6.11: the list named the device and, once started, its serial
   and finished boot; start (`no_window`) returned after a 30 s boot with serial `emulator-5554`,

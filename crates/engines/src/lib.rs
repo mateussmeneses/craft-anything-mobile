@@ -7,6 +7,7 @@
 
 pub mod adb;
 pub mod android_sdk;
+pub mod android_ui;
 pub mod assets;
 pub mod cdp;
 pub mod cutter;

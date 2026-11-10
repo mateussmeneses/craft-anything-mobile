@@ -292,6 +292,7 @@ Context window	上下文窗口
 Continue	继续
 Contradicted	存在矛盾
 Control-flow graph: a map of every path a function can take, like a flowchart.	控制流图：像流程图一样，展示函数可能执行的每一条路径。
+Controls on the screen	屏幕上的控件
 Copies share the files it saves beside itself.	各副本共享它在自身目录旁保存的文件。
 Copy a file off the phone	从手机复制文件
 Copy a file to the phone	将文件复制到手机

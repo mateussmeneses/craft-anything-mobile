@@ -520,7 +520,7 @@ struct ActivityParams {
 // Shared plumbing
 
 /// Build an adb handle for the active settings, wiring cancellation and progress-friendly deadlines.
-fn adb_for(ctx: &Ctx<'_>) -> Result<Adb, ToolError> {
+pub(super) fn adb_for(ctx: &Ctx<'_>) -> Result<Adb, ToolError> {
     let s = &ctx.session.settings;
     let path = craft_anything_engines::locate("adb", &s.engines.tools, &s.engine_store_dir()).ok_or_else(|| {
         ToolError::new(ErrorCode::EngineMissing, "Android platform-tools (adb) isn't installed.")
@@ -549,13 +549,13 @@ fn device_subject(serial: &str) -> Subject {
 }
 
 /// Start a device evidence record on the authority of the external service (the device).
-fn dev_ev(ctx: &Ctx<'_>, op: &str, serial: &str, params: Value) -> EvidenceBuilder {
+pub(super) fn dev_ev(ctx: &Ctx<'_>, op: &str, serial: &str, params: Value) -> EvidenceBuilder {
     EvidenceBuilder::new(op, device_subject(serial), device_env(ctx)).params(params).authority(Authority::OutsideService).confidence(Confidence::Observed)
 }
 
 /// Confirm the serial names a device that is present and online; otherwise a clear, never-hanging
 /// error.
-fn ensure_online(adb: &Adb, serial: &str) -> Result<Device, ToolError> {
+pub(super) fn ensure_online(adb: &Adb, serial: &str) -> Result<Device, ToolError> {
     let devices = adb.devices()?;
     match devices.iter().find(|d| d.serial == serial) {
         Some(d) if d.is_online() => Ok(d.clone()),
@@ -600,7 +600,7 @@ fn tail_text(s: &str) -> String {
 }
 
 /// The validated serial from params.
-fn serial_of(s: &str) -> Result<&str, ToolError> {
+pub(super) fn serial_of(s: &str) -> Result<&str, ToolError> {
     adb::validate_serial(s)
 }
 
