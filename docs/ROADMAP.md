@@ -2334,7 +2334,10 @@ Owner: open · Status: todo
       masked password and, once shown, unmarked it, so no typed text is returned at all now
 - [x] `adb_input_send`: taps, text, keys and swipes as consented device changes
 - [ ] Type text beyond printable ASCII (accents, other scripts): `input text` can't, so it needs
-      another way in (a clipboard paste or an input method we control)
+      another way in (a clipboard paste or an input method we control). Checked on Android 17: `input text` with
+      any non-ASCII character fails in the shell command (NullPointerException in
+      InputShellCommand.sendText) and `cmd clipboard` has no shell command, so it needs an input
+      method of ours installed with consent (built with the SDK's own tools)
 - [x] `adb_walkthrough_record`: a named sequence of steps with a picture and a control tree after
       each, saved so a check can replay it
 - [x] `adb_walkthrough_replay`: run a saved walkthrough again (on the same app, a rebuild or
