@@ -2223,8 +2223,12 @@ Owner: open · Status: in progress
 - [ ] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
       exported components and intent filters are already typed fields there
 - [ ] ODEX/VDEX: say what they are and what can't be read from them
-- [ ] Which framework an app is built with (Compose, Views, React Native, Flutter, MAUI, Kotlin
+- [x] Which framework an app is built with (Compose, Views, React Native, Flutter, MAUI, Kotlin
       Multiplatform, a WebView shell), each with the evidence that says so and its confidence
+      (`android_frameworks_find`, signal table in `analysis::android_frameworks`)
+- [ ] Check `android_frameworks_find` on real Flutter, React Native, .NET, Unity and Capacitor
+      apps (only Google's own apps were on the emulator); Kotlin Multiplatform has no marker of
+      its own and R8 strips Kotlin's, so both need another signal (code shapes, not names)
 
 ### R6.3 Watching an Android app run
 Owner: open · Status: todo

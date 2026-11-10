@@ -146,6 +146,7 @@ Answered by {name}	ตอบโดย {name}
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	คำตอบมาจาก {brain} หากต้องการสร้าง ให้ตั้งค่าเอเจนต์เขียนโค้ดในการตั้งค่า → AI
 App	แอป
 App details on device	รายละเอียดแอปบนอุปกรณ์
+App frameworks	เฟรมเวิร์กของแอป
 App state on device	สถานะแอปบนอุปกรณ์
 Apple apps	แอป Apple
 Apply model options	ใช้ตัวเลือกโมเดล

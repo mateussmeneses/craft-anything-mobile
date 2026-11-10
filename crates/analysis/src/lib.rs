@@ -1,6 +1,7 @@
 //! Analyzers that turn parsed targets into evidence for Craft Anything.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod android_frameworks;
 pub mod function_match;
 pub mod java_decompile;
 pub mod js_app;

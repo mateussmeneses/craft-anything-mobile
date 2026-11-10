@@ -104,6 +104,17 @@ pub fn specs() -> Vec<ToolSpec> {
             android_components_list,
         ),
         spec(
+            "android_frameworks_find",
+            "App frameworks",
+            "Say which frameworks an APK is built with (Flutter, React Native, .NET MAUI or Xamarin, Unity, Godot, Compose Multiplatform, Cordova, Capacitor, web pages in a WebView, Jetpack Compose, Android Views, and whether its code is Kotlin), each with the files and class names that say so and a strength (strong, medium, weak), and which one most likely draws the screens. Reads file names and the DEX files' class names from a typed signal table; Kotlin Multiplatform's shared code leaves no marker of its own.",
+            "See what an Android app was made with.",
+            Android,
+            e | Effects::CARRIES_TARGET_CONTENT,
+            Requires::Nothing,
+            schema_of::<FrameworksParams>,
+            android_frameworks_find,
+        ),
+        spec(
             "engines_apktool_check",
             "Is Apktool available?",
             "Report whether Apktool is installed (Settings path, managed engine store, then PATH) and its version. Craft Anything's built-in resource and manifest decoders need nothing installed; Apktool is optional.",
@@ -134,6 +145,80 @@ fn d_insn_limit() -> usize {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FrameworksParams {
+    /// Absolute path of the APK; the active target when omitted.
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+fn android_frameworks_find(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    use craft_anything_analysis::android_frameworks::{self, Strength};
+    let p: FrameworksParams = parse_params(params)?;
+    let pkg = load_pkg(ctx, p.path.as_deref(), true)?;
+    let (dexes, warnings) = parse_dexes(&pkg);
+    let files: Vec<&str> = pkg.zip.as_ref().map(|z| z.entries.iter().map(|e| e.name.as_str()).collect()).unwrap_or_default();
+    // Every type a DEX file names is in its string table as a descriptor (`Lpkg/Name;`).
+    let classes: Vec<&str> = dexes.iter().flat_map(|(_, d)| d.strings.iter().filter(|s| s.starts_with('L') && s.ends_with(';')).map(String::as_str)).collect();
+    // Resource types with entries, from the resource table (file paths may be shortened).
+    let mut lims = warn_lims(&warnings);
+    let types: Vec<String> = match member(&pkg, "resources.arsc") {
+        Some(Ok(b)) => match arsc::parse(&b, arsc::Limits { max_entries: 1 }) {
+            Ok(t) => t.packages.iter().flat_map(|p| p.types.iter().filter(|t| t.entry_count > 0).map(|t| t.name.clone())).collect(),
+            Err(e) => {
+                lims.push(Limitation::new("resources_unreadable", format!("resources.arsc: {e}")));
+                Vec::new()
+            }
+        },
+        Some(Err(e)) => {
+            lims.push(Limitation::new("resources_unreadable", format!("resources.arsc: {e}")));
+            Vec::new()
+        }
+        None => Vec::new(),
+    };
+    let type_refs: Vec<&str> = types.iter().map(String::as_str).collect();
+    let f = android_frameworks::detect(files.iter().copied(), classes.iter().copied(), &type_refs);
+    lims.push(Limitation::new(
+        "signals_from_names",
+        "Read from file and class names only: renamed files or classes obfuscated past their package names hide a framework, and Kotlin Multiplatform's shared code leaves no marker of its own.",
+    ));
+    if pkg.dexes.is_empty() {
+        lims.push(Limitation::new("no_dex", "No DEX file was read, so only file names were looked at (a split APK keeps code in its base)."));
+    }
+    let name_of = |id: &'static str| -> &'static str { f.found.iter().find(|x| x.framework == id).map(|x| x.name).unwrap_or(id) };
+    let summary = match f.primary {
+        Some(p) => format!(
+            "{}: screens most likely drawn with {}; found {}.",
+            pkg.input.name,
+            name_of(p),
+            f.found
+                .iter()
+                .map(|x| format!(
+                    "{} ({})",
+                    x.name,
+                    match x.strength {
+                        Strength::Strong => "strong",
+                        Strength::Medium => "medium",
+                        Strength::Weak => "weak",
+                    }
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        None if f.found.is_empty() => format!("{}: no known framework's signals found.", pkg.input.name),
+        None => format!("{}: no framework clearly draws the screens; found {}.", pkg.input.name, f.found.iter().map(|x| x.name).collect::<Vec<_>>().join(", ")),
+    };
+    let confidence = if f.found.iter().any(|x| x.strength == Strength::Strong) { Confidence::Observed } else { Confidence::Inferred };
+    let b = ev(ctx, "android_frameworks_find", &pkg, json!({"path": p.path}))
+        .result(json!({"primary": f.primary, "found": f.found, "files_read": files.len(), "class_names_read": classes.len()}))
+        .summary(summary)
+        .confidence(confidence)
+        .limitations(lims)
+        .coverage(Coverage::complete(files.len() as u64));
+    Ok(ToolOutput::evidence(b.build()?))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PackageParams {
     /// Absolute path of the APK; the active target when omitted.
@@ -1272,6 +1357,21 @@ mod tests {
 
     fn apk() -> String {
         craft_anything_testkit::temp_file("notes.apk", &fx::notes_apk()).to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn frameworks_are_named_with_what_says_so() {
+        let e = Engine::new(crate::testing::session());
+        let flutter = craft_anything_testkit::temp_file("f.apk", &craft_anything_testkit::flutter::flutter_apk()).to_string_lossy().into_owned();
+        let v = call(&e, "android_frameworks_find", json!({"path": flutter}));
+        assert_eq!(v["result"]["primary"], "flutter", "{}", v["summary"]);
+        let f = &v["result"]["found"][0];
+        assert_eq!((f["framework"].as_str(), f["strength"].as_str()), (Some("flutter"), Some("strong")));
+        assert!(f["evidence"].as_array().unwrap().iter().any(|x| x["kind"] == "file"));
+        let notes = call(&e, "android_frameworks_find", json!({"path": apk()}));
+        assert_ne!(notes["result"]["primary"], "flutter");
+        assert!(notes["result"]["class_names_read"].as_u64().unwrap() > 0);
+        assert!(!call_err(&e, "android_frameworks_find", json!({"path": "relative.apk"})).message.is_empty());
     }
 
     /// An APK whose manifest targets `target`, with one component for each export rule.

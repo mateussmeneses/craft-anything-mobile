@@ -146,6 +146,7 @@ Answered by {name}	Beantwortet von {name}
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	Antworten kommen von {brain}. Zum Bauen richtest du unter Einstellungen → KI einen Coding-Agent ein.
 App	App
 App details on device	App-Details auf dem Gerät
+App frameworks	Frameworks der App
 App state on device	App-Zustand auf dem Gerät
 Apple apps	Apple-Apps
 Apply model options	Modelloptionen anwenden

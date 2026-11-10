@@ -146,6 +146,7 @@ Answered by {name}	답변: {name}
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	답은 {brain}에서 옵니다. 만들려면 설정 → AI에서 코딩 에이전트를 설정해야 합니다.
 App	앱
 App details on device	기기의 앱 정보
+App frameworks	앱 프레임워크
 App state on device	기기에서의 앱 상태
 Apple apps	Apple 앱
 Apply model options	모델 옵션 적용

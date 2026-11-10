@@ -146,6 +146,7 @@ Answered by {name}	{name} yanıtladı
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	Yanıtlar {brain} kaynağından geliyor. Derlemek için Ayarlar → AI bölümünde bir kodlama ajanı kurun.
 App	Uygulama
 App details on device	Cihazdaki uygulama ayrıntıları
+App frameworks	Uygulama çatıları
 App state on device	Cihazdaki uygulama durumu
 Apple apps	Apple uygulamaları
 Apply model options	Model seçeneklerini uygula

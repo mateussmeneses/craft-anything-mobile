@@ -182,6 +182,7 @@ Answered by {name}	უპასუხა: {name}
 Answers come from {brain}. To build, set up a coding agent in Settings → AI.	პასუხები მოდის {brain}-ისგან. ასაწყობად დააყენეთ პროგრამირების აგენტი აქ: პარამეტრები → AI.
 App	აპი
 App details on device	აპის დეტალები მოწყობილობაზე
+App frameworks	აპის ფრეიმვორკები
 App state on device	აპის მდგომარეობა მოწყობილობაზე
 Apple apps	Apple-ის აპები
 Approve an agent action	აგენტის მოქმედების დადასტურება

@@ -102,6 +102,11 @@ Fixed:
   permissions asked for and 208 held; YouTube installed and not running, its denied run-time
   permissions the same as `dumpsys package` shows. In Clean room it was refused. Not checked: an
   older Android's listing, several displays, a physical phone.
+- App frameworks (`android_frameworks_find`): **New**. On base APKs pulled from the emulator:
+  YouTube and Chrome come out as Android Views (layouts found through the resource table, as
+  their `res/` paths are shortened), Messages and Settings as Jetpack Compose (strong), with
+  WebView use as a weak sign. Kotlin was found only in Settings: R8 strips its marker classes in
+  the others. Not checked: a real Flutter, React Native, .NET, Unity or Capacitor app.
 - Android app in several files (`android_bundle_show`): **New**. Chrome's six split APKs, pulled
   from the emulator and zipped as `.apks`: package, version code, SDK 32–36 and compile SDK 37,
   the base (x86_64 code, 73 components), four feature splits and the `config.en` language split.
