@@ -48,7 +48,7 @@ struct InputParams {
 /// password.
 fn shown(step: &Step) -> Value {
     match step {
-        Step::Text { text } => json!({"action": "text", "characters": text.chars().count()}),
+        Step::Text { text, .. } => json!({"action": "text", "characters": text.chars().count()}),
         other => serde_json::to_value(other).unwrap_or(Value::Null),
     }
 }
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn typed_text_is_never_repeated_in_the_record() {
-        let v = shown(&Step::Text { text: "hunter2 secret".into() });
+        let v = shown(&Step::Text { text: "hunter2 secret".into(), secret: false });
         assert_eq!(v, json!({"action": "text", "characters": 14}));
         assert_eq!(shown(&Step::Tap { x: 5, y: 6 }), json!({"action": "tap", "x": 5, "y": 6}));
     }

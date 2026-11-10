@@ -44,6 +44,8 @@ pub mod emulator_tools;
 pub mod adb_ui_tools;
 // Taps, typed text, keys and swipes on a device's screen.
 pub mod adb_input_tools;
+// A recorded walk through an app: steps, with a picture and the controls after each.
+pub mod adb_walkthrough_tools;
 // Frida instrumentation driven through the Frida CLI.
 pub mod frida_tools;
 // Target-free formats: Go, WebAssembly, EVM.
@@ -155,6 +157,7 @@ pub fn all() -> Vec<crate::ToolSpec> {
     v.extend(emulator_tools::specs());
     v.extend(adb_ui_tools::specs());
     v.extend(adb_input_tools::specs());
+    v.extend(adb_walkthrough_tools::specs());
     v.extend(frida_tools::specs());
     v.extend(format_tools::specs());
     v.extend(database_tools::specs());

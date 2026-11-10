@@ -97,6 +97,12 @@ Fixed:
   with `count` 200 returned 270 lines: logcat counts entries, and an entry can span lines.
   **Unverified**: `adb_app_install`, `adb_app_remove`, `adb_bugreport_save`, and every tool on a
   physical phone.
+- Record a walkthrough (`adb_walkthrough_record`): **New**. Two live walks on the emulator above:
+  Settings search (tap, type, two backs: 5 captures, the app on screen changed and came back),
+  and Add network (7 steps, 8 captures) with a password typed without `secret` into the field
+  `id/password`: it was kept out automatically, and no file in the folder nor the evidence held it,
+  also after "Show password". Not checked: a capture that fails (a screen that never settles), a
+  refused step, a physical phone.
 - Tap, type and swipe (`adb_input_send`): **New**. Run on the emulator above: a tap on Settings'
   search box, then "wi fi" typed (the field then held exactly that, space included); back and
   home keys; Add network opened, a name typed, the security list opened and an entry picked, a

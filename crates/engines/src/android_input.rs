@@ -71,7 +71,13 @@ pub enum Step {
         duration_ms: Option<u32>,
     },
     /// Type text into the focused field: printable ASCII only.
-    Text { text: String },
+    Text {
+        text: String,
+        /// Keep this text out of anything saved (a walkthrough's file); a password field is
+        /// treated this way whether or not this is set.
+        #[serde(default)]
+        secret: bool,
+    },
     /// Press a key by name: back, home, enter, tab, delete, escape, menu, app_switch, up, down…
     Key { key: String },
     /// Wait before the next step, in milliseconds.
@@ -117,7 +123,7 @@ pub fn command(step: &Step) -> Result<Command, ToolError> {
             coord(*y2, "y2")?,
             duration(*duration_ms, 300)?
         )),
-        Step::Text { text } => Command::Shell(format!("input text {}", typed(text)?)),
+        Step::Text { text, .. } => Command::Shell(format!("input text {}", typed(text)?)),
         Step::Key { key } => {
             let code = key_code(key).ok_or_else(|| {
                 let names: Vec<&str> = KEYS.iter().map(|(k, _)| *k).collect();
@@ -181,18 +187,18 @@ mod tests {
 
     #[test]
     fn typed_text_is_quoted_and_spaces_are_written_for_input() {
-        assert_eq!(shell(Step::Text { text: "hello world".into() }), "input text 'hello%sworld'");
-        assert_eq!(shell(Step::Text { text: "it's; rm -rf / && $(x) `y`".into() }), r#"input text 'it'\''s;%srm%s-rf%s/%s&&%s$(x)%s`y`'"#);
-        assert_eq!(shell(Step::Text { text: "100%".into() }), "input text '100%'");
+        assert_eq!(shell(Step::Text { text: "hello world".into(), secret: false }), "input text 'hello%sworld'");
+        assert_eq!(shell(Step::Text { text: "it's; rm -rf / && $(x) `y`".into(), secret: false }), r#"input text 'it'\''s;%srm%s-rf%s/%s&&%s$(x)%s`y`'"#);
+        assert_eq!(shell(Step::Text { text: "100%".into(), secret: true }), "input text '100%'");
     }
 
     #[test]
     fn text_that_would_be_typed_differently_is_refused() {
         for bad in ["", "é", "line\nbreak", "tab\there", "50%sale", "\u{7f}"] {
-            assert!(command(&Step::Text { text: bad.into() }).is_err(), "{bad:?}");
+            assert!(command(&Step::Text { text: bad.into(), secret: false }).is_err(), "{bad:?}");
         }
-        assert!(command(&Step::Text { text: "a".repeat(MAX_TEXT + 1) }).is_err());
-        assert!(command(&Step::Text { text: "a".repeat(MAX_TEXT) }).is_ok());
+        assert!(command(&Step::Text { text: "a".repeat(MAX_TEXT + 1), secret: false }).is_err());
+        assert!(command(&Step::Text { text: "a".repeat(MAX_TEXT), secret: false }).is_ok());
     }
 
     #[test]

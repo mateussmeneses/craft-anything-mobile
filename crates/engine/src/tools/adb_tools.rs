@@ -1028,13 +1028,8 @@ fn adb_file_download(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     done(e)
 }
 
-fn adb_screenshot_take(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    let p: OutputDirParams = parse_params(params)?;
-    let serial = serial_of(&p.serial)?;
-    let outdir = create_absent_dir(&p.output_directory)?;
-    let made = UnlessWritten::new(&outdir);
-    let adb = adb_for(ctx)?.timeout(Duration::from_secs(60));
-    ensure_online(&adb, serial)?;
+/// A PNG of the device's screen (`exec-out screencap -p`), checked to be one.
+pub(super) fn screencap(adb: &Adb, serial: &str) -> Result<Vec<u8>, ToolError> {
     let out = adb.exec_out(serial, "screencap -p")?;
     if !out.success && out.stdout.is_empty() {
         return Err(exec_error("screencap", &out));
@@ -1043,11 +1038,22 @@ fn adb_screenshot_take(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, T
         return Err(ToolError::new(ErrorCode::GarbledOutput, "The screenshot did not come back as a PNG.")
             .with_remediation("Some devices block screen capture; try again or capture it on the device."));
     }
+    Ok(out.stdout)
+}
+
+fn adb_screenshot_take(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: OutputDirParams = parse_params(params)?;
+    let serial = serial_of(&p.serial)?;
+    let outdir = create_absent_dir(&p.output_directory)?;
+    let made = UnlessWritten::new(&outdir);
+    let adb = adb_for(ctx)?.timeout(Duration::from_secs(60));
+    ensure_online(&adb, serial)?;
+    let png = screencap(&adb, serial)?;
     let file = outdir.join("screen.png");
-    write_atomic(&file, &out.stdout)?;
+    write_atomic(&file, &png)?;
     let e = dev_ev(ctx, "adb_screenshot_take", serial, json!({"serial": serial, "output_directory": outdir.to_string_lossy()}))
-        .result(json!({"file": file, "bytes": out.stdout.len()}))
-        .summary(format!("Saved a {}-byte screenshot to {}.", out.stdout.len(), file.display()))
+        .result(json!({"file": file, "bytes": png.len()}))
+        .summary(format!("Saved a {}-byte screenshot to {}.", png.len(), file.display()))
         .authority(Authority::OutsideService)
         .location(Location::new("path", file.to_string_lossy()))
         .coverage(Coverage::complete(1))

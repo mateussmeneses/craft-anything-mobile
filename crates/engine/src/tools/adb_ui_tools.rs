@@ -26,7 +26,7 @@ const MAX_LIMIT: usize = 1000;
 /// Longest text filter accepted.
 const MAX_FILTER: usize = 200;
 /// How long the device gets to describe its screen.
-const DUMP_TIMEOUT: Duration = Duration::from_secs(45);
+pub(super) const DUMP_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub fn specs() -> Vec<ToolSpec> {
     vec![spec(
@@ -151,6 +151,20 @@ fn page(tree: &UiTree, offset: usize, limit: usize, interactive_only: bool, text
     Page { result, summary, limitations, coverage }
 }
 
+/// The device's description of its screen, parsed. `adb` should allow [`DUMP_TIMEOUT`].
+pub(super) fn read_screen(adb: &craft_anything_engines::adb::Adb, serial: &str) -> Result<UiTree, ToolError> {
+    // `/dev/tty` makes uiautomator print the description instead of writing a file on the device.
+    let out = adb.exec_out(serial, "uiautomator dump /dev/tty")?;
+    let text = out.stdout_text();
+    android_ui::parse(&text).map_err(|UiError::NotADump| {
+        let said = format!("{}{}", text, out.stderr_text());
+        let last = said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("nothing").trim().chars().take(300).collect::<String>();
+        ToolError::new(ErrorCode::ProgramFailed, format!("The device did not describe its screen. It said: {last}")).with_remediation(
+            "A screen that never stops moving (a video, an animation) can't be described; wait for it to settle, or unlock the device, and try again.",
+        )
+    })
+}
+
 fn adb_ui_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: UiParams = parse_params(params)?;
     let serial = serial_of(&p.serial)?;
@@ -163,16 +177,7 @@ fn adb_ui_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError
     }
     let adb = adb_for(ctx)?.timeout(DUMP_TIMEOUT).idle_timeout(DUMP_TIMEOUT);
     ensure_online(&adb, serial)?;
-    // `/dev/tty` makes uiautomator print the description instead of writing a file on the device.
-    let out = adb.exec_out(serial, "uiautomator dump /dev/tty")?;
-    let text = out.stdout_text();
-    let tree = android_ui::parse(&text).map_err(|UiError::NotADump| {
-        let said = format!("{}{}", text, out.stderr_text());
-        let last = said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("nothing").trim().chars().take(300).collect::<String>();
-        ToolError::new(ErrorCode::ProgramFailed, format!("The device did not describe its screen. It said: {last}")).with_remediation(
-            "A screen that never stops moving (a video, an animation) can't be described; wait for it to settle, or unlock the device, and try again.",
-        )
-    })?;
+    let tree = read_screen(&adb, serial)?;
     let page = page(&tree, p.offset, limit, p.interactive_only, p.text_contains.as_deref());
     let e = dev_ev(
         ctx,

@@ -129,6 +129,7 @@ pub const TOOLS: &[&str] = &[
     "adb_screenshot_take",
     "adb_ui_show",
     "adb_input_send",
+    "adb_walkthrough_record",
     "adb_apps_list",
     "adb_apps_find",
     "adb_app_install",
