@@ -945,13 +945,19 @@ fn walk_version(r: &Reader<'_>, start: usize, end: usize, depth: u8, info: &mut 
         let value_bytes = if is_text { value_len * 2 } else { value_len };
         match key.as_str() {
             "VS_VERSION_INFO" => {
-                if r.u32_le(value_off) == Some(0xfeef_04bd) {
+                // The fixed record is 13 DWORDs. Adjacent children or bytes after this node
+                // cannot supply fields missing from its declared binary value.
+                let fixed = r
+                    .slice(value_off, value_len)
+                    .filter(|_| r.u16_le(pos + 4) == Some(0) && value_len >= 52 && value_off.checked_add(value_len).is_some_and(|end| end <= node_end))
+                    .map(Reader::new);
+                if let Some(fixed) = fixed.filter(|fixed| fixed.u32_le(0) == Some(0xfeef_04bd)) {
                     let v = |ms: Option<u32>, ls: Option<u32>| -> Option<String> {
                         let (ms, ls) = (ms?, ls?);
                         Some(format!("{}.{}.{}.{}", ms >> 16, ms & 0xffff, ls >> 16, ls & 0xffff))
                     };
-                    info.file_version = v(r.u32_le(value_off + 8), r.u32_le(value_off + 12));
-                    info.product_version = v(r.u32_le(value_off + 16), r.u32_le(value_off + 20));
+                    info.file_version = v(fixed.u32_le(8), fixed.u32_le(12));
+                    info.product_version = v(fixed.u32_le(16), fixed.u32_le(20));
                 }
                 walk_version(r, align4(value_off + value_bytes), node_end, depth + 1, info);
             }

@@ -36,6 +36,8 @@ enum N {
     Ident(String),
     /// A private declaration's name with its file discriminator, as printed: `(name in _ABC…)`.
     Private(String),
+    /// An operator's name and fixity, as printed: `== infix`.
+    Operator(String),
     Module(String),
     Nominal {
         kind: char,
@@ -228,7 +230,7 @@ impl<'a> D<'a> {
 
     fn pop_type(&mut self) -> R<N> {
         match self.pop()? {
-            N::Ident(_) | N::Private(_) | N::EmptyList | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } => {
+            N::Ident(_) | N::Private(_) | N::Operator(_) | N::EmptyList | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } => {
                 Err("expected a type".into())
             }
             N::Module(m) => Err(format!("expected a type, found module {m}")),
@@ -254,7 +256,7 @@ impl<'a> D<'a> {
     /// One protocol of a protocol list (`…_p`): a context and a name, with no `P` kind letter and
     /// no substitution slot of its own, or a type such as a standard protocol (`SH`).
     fn pop_protocol(&mut self) -> R<N> {
-        if matches!(self.stack.last(), Some(N::Ident(_) | N::Private(_))) {
+        if matches!(self.stack.last(), Some(N::Ident(_) | N::Private(_) | N::Operator(_))) {
             let name = self.pop_decl_name()?;
             let ctx = self.pop_context()?;
             return Ok(N::Nominal { kind: 'P', ctx: Box::new(ctx), name });
@@ -394,7 +396,7 @@ impl<'a> D<'a> {
             b'C' => return self.push(N::Module("__C_Synthesized".into())),
             b'a' => ('V', "Array"),
             b'b' => ('V', "Bool"),
-            b'c' => return Err("concurrency standard types are not supported".into()),
+            b'c' => Self::concurrency_type(self.next()?)?,
             b'D' => ('V', "Dictionary"),
             b'd' => ('V', "Double"),
             b'f' => ('V', "Float"),
@@ -450,6 +452,32 @@ impl<'a> D<'a> {
         Ok(())
     }
 
+    /// The type behind `Sc` and one more letter, as `(kind, name)`. A letter with no type is an error.
+    fn concurrency_type(c: u8) -> R<(char, &'static str)> {
+        Ok(match c {
+            b'A' => ('P', "Actor"),
+            b'C' => ('V', "CheckedContinuation"),
+            b'c' => ('V', "UnsafeContinuation"),
+            b'E' => ('V', "CancellationError"),
+            b'e' => ('V', "UnownedSerialExecutor"),
+            b'F' => ('P', "Executor"),
+            b'f' => ('P', "SerialExecutor"),
+            b'G' => ('V', "TaskGroup"),
+            b'g' => ('V', "ThrowingTaskGroup"),
+            b'h' => ('P', "TaskExecutor"),
+            b'I' => ('P', "AsyncIteratorProtocol"),
+            b'i' => ('P', "AsyncSequence"),
+            b'J' => ('V', "UnownedJob"),
+            b'M' => ('C', "MainActor"),
+            b'P' => ('V', "TaskPriority"),
+            b'S' => ('V', "AsyncStream"),
+            b's' => ('V', "AsyncThrowingStream"),
+            b'T' => ('V', "Task"),
+            b't' => ('V', "UnsafeCurrentTask"),
+            other => return Err(format!("unknown concurrency standard type Sc{}", char::from(other))),
+        })
+    }
+
     fn swift_enum(name: &str) -> N {
         N::Nominal { kind: 'O', ctx: Box::new(N::Module("Swift".into())), name: name.into() }
     }
@@ -457,7 +485,7 @@ impl<'a> D<'a> {
     fn pop_params(&mut self) -> R<N> {
         match self.pop()? {
             N::EmptyList => Ok(N::Tuple(Vec::new())),
-            N::Ident(_) | N::Private(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_) => {
+            N::Ident(_) | N::Private(_) | N::Operator(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_) => {
                 Err("expected parameter types".into())
             }
             other => Ok(other),
@@ -600,7 +628,7 @@ impl<'a> D<'a> {
     fn shape_ok(&self, top_func: bool, need_name: bool) -> bool {
         let st = &self.stack;
         let at = |i: usize| i.checked_sub(1).and_then(|j| st.get(j));
-        let typeish = |n: Option<&N>| matches!(n, Some(n) if !matches!(n, N::Ident(_) | N::Private(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_)));
+        let typeish = |n: Option<&N>| matches!(n, Some(n) if !matches!(n, N::Ident(_) | N::Private(_) | N::Operator(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_)));
         let mut i = st.len();
         if matches!(at(i), Some(N::Sig { .. })) {
             i -= 1;
@@ -644,7 +672,7 @@ impl<'a> D<'a> {
             }
         }
         if need_name {
-            if !matches!(at(i), Some(N::Ident(_) | N::Private(_))) {
+            if !matches!(at(i), Some(N::Ident(_) | N::Private(_) | N::Operator(_))) {
                 return false;
             }
             i -= 1;
@@ -740,7 +768,7 @@ impl<'a> D<'a> {
         let module = self.pop_context()?;
         let proto = match self.pop()? {
             n @ N::Nominal { kind: 'P', .. } => n,
-            N::Ident(name) | N::Private(name) => {
+            N::Ident(name) | N::Private(name) | N::Operator(name) => {
                 let ctx = self.pop_context()?;
                 N::Nominal { kind: 'P', ctx: Box::new(ctx), name }
             }
@@ -844,20 +872,65 @@ impl<'a> D<'a> {
         self.max_param = Some(self.max_param.map_or(idx, |m| m.max(idx)));
     }
 
-    /// The name of a declaration: an identifier, or a private name built by `LL`.
+    /// The name of a declaration: an identifier, an operator, or a private name built by `LL`.
     fn pop_decl_name(&mut self) -> R<String> {
         match self.pop()? {
-            N::Ident(i) | N::Private(i) => Ok(i),
+            N::Ident(i) | N::Private(i) | N::Operator(i) => Ok(i),
             _ => Err("expected a name".into()),
         }
     }
 
     /// `LL`: a private declaration's name, then the discriminator of the file that declares it.
-    /// Both are identifiers and keep their substitution slots; the pair takes none of its own.
+    /// Both are identifiers (the name may be an operator: `(< infix in _ABC…)`) and keep their
+    /// substitution slots; the pair takes none of its own.
     fn private_name(&mut self) -> R<()> {
         let discriminator = self.pop_name()?;
-        let name = self.pop_name()?;
+        let name = match self.pop()? {
+            N::Ident(i) | N::Operator(i) => i,
+            _ => return Err("expected a name".into()),
+        };
         self.push(N::Private(format!("({name} in {discriminator})")))
+    }
+
+    /// `o` and a fixity letter (`i` infix, `p` prefix, `P` postfix): the identifier before it
+    /// spells an operator, with each ASCII operator character written as a letter, and it prints
+    /// as the operator and its fixity: `2eeoi` is `== infix`. Bytes outside ASCII stand for
+    /// themselves. Any other ASCII byte, such as a digit, a capital or `_`, is not part of an
+    /// operator.
+    fn operator_name(&mut self) -> R<()> {
+        let fixity = match self.next()? {
+            b'i' => "infix",
+            b'p' => "prefix",
+            b'P' => "postfix",
+            _ => return Err("unknown operator fixity".into()),
+        };
+        let N::Ident(spelled) = self.pop()? else {
+            return Err("operator without a name".into());
+        };
+        let mut name = String::with_capacity(spelled.len() + 8);
+        for c in spelled.chars() {
+            name.push(match c {
+                'a' => '&',
+                'c' => '@',
+                'd' => '/',
+                'e' => '=',
+                'g' => '>',
+                'l' => '<',
+                'm' => '*',
+                'n' => '!',
+                'o' => '|',
+                'p' => '+',
+                'q' => '?',
+                'r' => '%',
+                's' => '-',
+                't' => '~',
+                'x' => '^',
+                'z' => '.',
+                c if !c.is_ascii() => c,
+                _ => return Err("not an operator character".into()),
+            });
+        }
+        self.push(N::Operator(format!("{name} {fixity}")))
     }
 
     fn operator(&mut self) -> R<()> {
@@ -992,7 +1065,7 @@ impl<'a> D<'a> {
                     return Err("metadata cache of a marker".into());
                 }
                 if p.starts_with("protocol descriptor")
-                    && let Some(N::Ident(_) | N::Private(_)) = self.stack.last()
+                    && let Some(N::Ident(_) | N::Private(_) | N::Operator(_)) = self.stack.last()
                 {
                     let name = self.pop_decl_name()?;
                     let ctx = self.pop_context()?;
@@ -1243,6 +1316,7 @@ impl<'a> D<'a> {
                 let protos = self.protocol_list()?;
                 self.push(N::Existential(protos))
             }
+            b'o' => self.operator_name(),
             b'q' => {
                 let i = self.index()?.checked_add(1).ok_or("overflow")?;
                 self.note_param(i);
@@ -1449,7 +1523,7 @@ fn render(n: &N, depth: usize) -> String {
     }
     let d = depth + 1;
     match n {
-        N::Ident(s) | N::Private(s) | N::Module(s) | N::Builtin(s) => s.clone(),
+        N::Ident(s) | N::Private(s) | N::Operator(s) | N::Module(s) | N::Builtin(s) => s.clone(),
         N::Nominal { .. } | N::Extension { .. } => path(n, d),
         N::Bound { base, args } => {
             let b = path(base, d);

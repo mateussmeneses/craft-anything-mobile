@@ -1773,6 +1773,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-apk-sign-eocd-comment-boundary-20261105
 - [x] Require APK signer SDK ranges and ordered signature-algorithm lists to match their signed copies, with complete required signer fields, before reporting verification.
       — claimed: Afloat16, branch bugfix/r3.12-apk-signed-metadata-20261110
+- [x] Include an Android package's type-ID offset in resource identities while retaining its local type-name indices; reject shifted IDs outside the one-byte type field.
+      — claimed: Afloat16, branch bugfix/r3.12-arsc-type-id-offset-20261110
 - [x] Keep Android resource packages, child chunks and library records inside their enclosing declared ranges.
       — claimed: Afloat16, branch bugfix/r3.12-arsc-parent-chunk-boundaries-20261109
       Source `ea680eeb9e92`; [format checks](https://github.com/Afloat16/claude-mem/actions/runs/42636776430/job/129226895431) and [compatibility gates](https://github.com/Afloat16/claude-mem/actions/runs/42642583301/job/129247271153) passed.
@@ -1843,6 +1845,11 @@ Owner: open · Status: in progress
       and `Equatable` conformance descriptors and witness tables (`…SQAAMc`, `…SQsWP`) were
       reported invalid ("expected a protocol").
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-equatable
+- [x] Swift symbols spell the concurrency types as `Sc` and a letter. The demangler reported all of
+      them invalid ("concurrency standard types are not supported"), so `_$sScAMp` should read
+      "protocol descriptor for Swift.Actor" and `ScT`, `ScG`, `ScS` and the rest their own types,
+      with an unknown letter after `Sc` still invalid.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-concurrency-types
 - [x] Swift symbols name the type metadata singleton initialization cache. The demangler read
       `Ml` with the name of `ML`, so `_$s10RealityKit30__RKEntityTriggerSpecificationOMl` read
       "lazy cache variable for type metadata for RealityKit.__RKEntityTriggerSpecification" where
@@ -1863,6 +1870,12 @@ Owner: open · Status: in progress
       `Swift.Double.__allocating_init(Swift.Double) -> Swift.Double` for
       `Swift.Double.init(Swift.Double) -> Swift.Double`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-init-names
+- [x] Swift operator functions decode. A function named by an operator is written as the
+      operator's letters and `oi` (infix), `op` (prefix) or `oP` (postfix), and the demangler
+      reported every one invalid (`unsupported operator 'o'`), so `_$s10Foundation4DateV2eeoiySbAC_ACtFZ`
+      now reads `static Foundation.Date.== infix(Foundation.Date, Foundation.Date) -> Swift.Bool`.
+      Private operators, and the witnesses, thunks and descriptors around an operator function, decode too.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-operator-names
 - [x] Swift arguments without a label read `_:` when another argument of the same function,
       initialiser or subscript has one. The demangler printed the bare type, so
       `_$s10Foundation13__DataStorageC6append_6lengthySV_SitF` read
@@ -1910,6 +1923,8 @@ Owner: open · Status: in progress
 - [x] Keep PE version strings whose value is empty (stored with no value at all), such as
       `OleSelfRegister`, whose presence is the whole point.
       — claimed: Plastic-time, branch bugfix/r3.12-pe-empty-version-strings
+- [x] Keep fixed PE file and product versions inside a complete declared VS_FIXEDFILEINFO value and its enclosing version node.
+      — claimed: Afloat16, branch bugfix/r3.12-pe-fixed-version-bounds-20261110
 - [x] Read PE version strings stored as binary (wType 0), which some linkers write; they're
       dropped today (`FileDescription` in `pthreadVC2.dll`). A binary leaf at the string depth is
       decoded as UTF-16LE; a binary node with children stays a container.
@@ -1931,6 +1946,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-go-pclntab-section-boundary-20261105
 - [x] Preserve complete Go functions before a damaged later table entry and report partial coverage when the scan stops at structural damage or its unreadable-name limit.
       — claimed: Afloat16, branch bugfix/r3.12-go-pclntab-prefix-20261110
+- [x] Bound retained Go function-name bytes when pclntab records share name references, preserving recovered functions and explicitly disclosing omitted names.
+      — claimed: Afloat16, branch bugfix/r3.12-go-name-bytes-20261110
 - [x] Keep the report's function display limit from marking a valid large WebAssembly module as mismatched.
       — claimed: Afloat16, branch bugfix/r3.12-wasm-function-count
 - [x] Preserve complete Unicode characters in shortened .NET strings.
@@ -2016,6 +2033,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-java-descriptor-boundary
 - [x] Validate complete JVM switch payloads before reserving pairs, and reject duplicate or descending lookup keys instead of emitting invalid control-flow facts.
       — claimed: Afloat16, branch bugfix/r3.12-java-switch-tables-20261110
+- [x] Bound aggregate DEX payload copies while attaching shared switch and array data to decoded instructions.
+      — claimed: Afloat16, branch bugfix/r3.12-dex-payload-memory-20261110
 - [x] Stop capped DEX member and handler lists from interpreting unread records as the following field or a catch-all.
       — claimed: Afloat16, branch bugfix/r3.12-dex-capped-table-alignment-20261109
       Source `149f060b9959`; [format checks](https://github.com/Afloat16/claude-mem/actions/runs/42633003467/job/129213811327) and [compatibility gates](https://github.com/Afloat16/claude-mem/actions/runs/42642583301/job/129247271153) passed.
