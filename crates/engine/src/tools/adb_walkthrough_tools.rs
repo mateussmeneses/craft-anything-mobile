@@ -443,10 +443,16 @@ fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Va
         }
         _ => (vec![], vec![], false),
     };
-    let picture_identical = match (picture(old_dir, old), picture(new_dir, new)) {
+    let (old_png, new_png) = (picture(old_dir, old), picture(new_dir, new));
+    let picture_identical = match (&old_png, &new_png) {
         (Some(a), Some(b)) => Some(a == b),
         _ => None,
     };
+    let picture = match (&old_png, &new_png) {
+        (Some(a), Some(b)) => compare_pictures(a, b),
+        _ => Value::Null,
+    };
+    let picture_changed = picture.get("difference_fraction").and_then(Value::as_f64).map(|f| f > PICTURE_CHANGE);
     let changed = same_app == Some(false) || !added.is_empty() || !removed.is_empty() || !controls_known;
     json!({
         "index": index,
@@ -459,7 +465,36 @@ fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Va
         "added": added.iter().take(MAX_LISTED).collect::<Vec<_>>(),
         "removed": removed.iter().take(MAX_LISTED).collect::<Vec<_>>(),
         "picture_identical": picture_identical,
+        "picture_changed": picture_changed,
+        "picture": picture,
     })
+}
+
+/// How far two channel values may differ and still count as the same pixel.
+const PIXEL_TOLERANCE: u8 = 24;
+/// The share of pixels that must differ for a picture to count as changed.
+const PICTURE_CHANGE: f64 = 0.01;
+/// The share of a picture's height at the top left out (the status bar, with its clock).
+const STATUS_BAR_SHARE: u32 = 6;
+
+/// The two pictures compared pixel by pixel, the top `STATUS_BAR_SHARE` percent left out.
+fn compare_pictures(a: &[u8], b: &[u8]) -> Value {
+    use super::web_common::{Image, decode_png, pixel_diff};
+    let below_bar = |img: Image| {
+        let skip = img.height.saturating_mul(STATUS_BAR_SHARE) / 100;
+        let start = (skip as usize).saturating_mul(img.width as usize).saturating_mul(4);
+        Image { width: img.width, height: img.height.saturating_sub(skip), rgba: img.rgba.get(start..).unwrap_or_default().to_vec() }
+    };
+    match (decode_png(a), decode_png(b)) {
+        (Ok(a), Ok(b)) => {
+            let mut v = pixel_diff(&below_bar(a), &below_bar(b), PIXEL_TOLERANCE);
+            if let Value::Object(m) = &mut v {
+                m.insert("top_left_out_percent".into(), json!(STATUS_BAR_SHARE));
+            }
+            v
+        }
+        (Err(e), _) | (_, Err(e)) => json!({"comparable": false, "reason": e.message}),
+    }
 }
 
 fn adb_walkthrough_replay(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
@@ -511,10 +546,16 @@ fn adb_walkthrough_replay(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         lims.push(Limitation::new("capture_count_differs", format!("The recording has {} capture(s), the replay {}.", old_captures.len(), w.captures.len())));
     }
     lims.push(Limitation::new(
-        "controls_not_pixels",
-        "A capture counts as changed when its app or the controls a person can act on differ; pictures are only compared byte for byte, not by eye.",
+        "how_compared",
+        "A capture counts as changed when its app or the controls a person can act on differ. Pictures are compared pixel by pixel apart from the top 6% (the status bar): a picture counts as changed when over 1% of its pixels differ by more than 24 in a channel, so animations or a changed clock elsewhere can still count."
     ));
-    let summary = format!("Replayed {} step(s): {changed} of {} capture(s) differ from the recording. Saved to {}.", steps.len(), changes.len(), dir.display());
+    let pictures = changes.iter().filter(|c| c["picture_changed"].as_bool() == Some(true)).count();
+    let summary = format!(
+        "Replayed {} step(s): {changed} of {} capture(s) differ from the recording, {pictures} picture(s) look different. Saved to {}.",
+        steps.len(),
+        changes.len(),
+        dir.display()
+    );
     let mut coverage = Coverage::complete(w.captures.len() as u64);
     if w.stopped.is_some() {
         coverage.status = CoverageStatus::Partial;
@@ -525,7 +566,7 @@ fn adb_walkthrough_replay(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         serial,
         json!({"serial": serial, "walkthrough": file, "output_directory": dir, "secrets": p.secrets.len(), "settle_ms": settle_ms}),
     )
-    .result(json!({"file": new_file, "replay_of": file, "complete": w.stopped.is_none(), "stopped": w.stopped, "changed": changed, "changes": changes}))
+    .result(json!({"file": new_file, "replay_of": file, "complete": w.stopped.is_none(), "stopped": w.stopped, "changed": changed, "pictures_changed": pictures, "changes": changes}))
     .summary(summary)
     .limitations(lims)
     .location(Location::new("path", new_file.to_string_lossy()))
@@ -657,6 +698,32 @@ mod tests {
         // A name pointing outside the walk's folder is not followed.
         let outside = json!({"index": 1, "controls": "../step-01.json", "package": "app"});
         assert_eq!(compare_capture(a.path(), Some(&outside), a.path(), &outside)["controls_compared"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn pictures_are_compared_by_pixel_leaving_out_the_status_bar() {
+        use crate::tools::web_common::{Image, encode_png};
+        let png = |paint: &dyn Fn(u32, u32) -> u8| {
+            let (w, h) = (20u32, 100u32);
+            let mut rgba = Vec::new();
+            for y in 0..h {
+                for x in 0..w {
+                    let v = paint(x, y);
+                    rgba.extend([v, v, v, 255]);
+                }
+            }
+            encode_png(&Image { width: w, height: h, rgba }).unwrap()
+        };
+        let base = png(&|_, _| 100);
+        // A different clock in the status bar (top rows) and a slight shade change: the same.
+        let clock = png(&|x, y| if y < 5 && x < 10 { 255 } else { 110 });
+        let same = compare_pictures(&base, &clock);
+        assert_eq!((same["comparable"].as_bool(), same["identical"].as_bool()), (Some(true), Some(true)), "{same}");
+        // A new panel in the lower half: changed.
+        let panel = png(&|_, y| if y > 60 { 0 } else { 100 });
+        let diff = compare_pictures(&base, &panel);
+        assert!(diff["difference_fraction"].as_f64().unwrap() > PICTURE_CHANGE, "{diff}");
+        assert_eq!(compare_pictures(&base, b"not a png")["comparable"].as_bool(), Some(false));
     }
 
     #[test]

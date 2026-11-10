@@ -121,6 +121,8 @@ Fixed:
   differ (same app and controls; pictures not byte-identical after the first). Replayed from the
   home screen: 2 of 3 differ (another app, 25 controls added, 13–14 removed). Not checked: a
   walk with kept-out text, a rebuild, another device, a physical phone.
+  Pictures are now compared pixel by pixel below the status bar: replayed from the same screen,
+  0% and 0.4% of pixels differ before and after, 9% after the swipe (the fling stopped elsewhere).
 - Record a walkthrough (`adb_walkthrough_record`): **New**. Two live walks on the emulator above:
   Settings search (tap, type, two backs: 5 captures, the app on screen changed and came back),
   and Add network (7 steps, 8 captures) with a password typed without `secret` into the field
