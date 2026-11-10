@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod adb;
+pub mod android_input;
 pub mod android_sdk;
 pub mod android_ui;
 pub mod assets;

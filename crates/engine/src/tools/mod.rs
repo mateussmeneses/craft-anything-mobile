@@ -42,6 +42,8 @@ pub mod android_sdk_tools;
 pub mod emulator_tools;
 // The controls on a device's screen.
 pub mod adb_ui_tools;
+// Taps, typed text, keys and swipes on a device's screen.
+pub mod adb_input_tools;
 // Frida instrumentation driven through the Frida CLI.
 pub mod frida_tools;
 // Target-free formats: Go, WebAssembly, EVM.
@@ -152,6 +154,7 @@ pub fn all() -> Vec<crate::ToolSpec> {
     v.extend(android_sdk_tools::specs());
     v.extend(emulator_tools::specs());
     v.extend(adb_ui_tools::specs());
+    v.extend(adb_input_tools::specs());
     v.extend(frida_tools::specs());
     v.extend(format_tools::specs());
     v.extend(database_tools::specs());
