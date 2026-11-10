@@ -946,6 +946,8 @@ Owner: open · Status: in progress
       — claimed: Plastic-time, branch bugfix/r2.2-yaml-null-table
 - [ ] Live-check #116 on Windows: install Hermes natively, start the app from a launcher, and see
       Settings → AI offer it; #116's "error after every message" has no text yet (asked)
+- [x] Refuse multi-document YAML configs before planning edits or removing registrations.
+      — claimed: Plastic-time, branch rrfz/bugfix-r2.2-yaml-single-document
 - [x] A Hermes `config.yaml` that starts with a byte-order mark gets our entry in its own
       `mcp_servers` table, not in a second one that hides the person's servers from Hermes.
       — claimed: Plastic-time, branch bugfix/r2.2-yaml-config-bom
@@ -1040,6 +1042,8 @@ Owner: open · Status: in progress
       — claimed: gtxy27, branch `bugfix/r2.2-dsh-stdin`
 - [ ] DeepSeek Harness: no resume (its headless profile keeps no session), and a build on the harness's
       desktop profile is untried
+- [x] Apply repeated client selections and aliases once, preserving their first selection order.
+      — claimed: Plastic-time, branch rrfz/bugfix-r2.2-deduplicate-clients
 - [ ] `setup` writes the plain `mcp` command, so it drops an `--all-tools` an entry already has, and
       `doctor` then calls that entry "a different copy or shape of the command" and suggests the very
       command that breaks it. The installed skill now warns against running `setup` on such an entry;
@@ -1382,6 +1386,9 @@ Gaps found while using the app for real projects.
 - [x] Settings → AI: a card for an AI found on this computer wraps its description beside its Add
       button; the line didn't wrap and ran on under the button
       — claimed: jgt87, branch bugfix/r2.9-detected-cards-wrap — PR #1235
+- [x] Settings → AI: Providers, Harnesses and Detect share consistent spacing below the discovery
+      heading and wrap together, so the Detect action cannot overlap a tab
+      — claimed: istaari, branch bugfix/ai-detection-spacing — PR #1530
 - [x] The same action reads the same everywhere: a pin's menu said "Show folder" for what the project
       page calls "Open folder" (both `project_open_folder`), and a game's chosen folder was shown as a
       full path in its row, where other chosen folders are shortened, cut to fit and whole on hover
@@ -1562,6 +1569,8 @@ Owner: open · Status: in progress
 Owner: open · Status: in progress
 - [x] Keep sequence splitting from introducing JavaScript strict-mode directives.
       — claimed: Plastic-time, branch rrfz/bugfix-r3.12-js-sequence-directives
+- [x] Allocate distinct recovered module paths after repeated content-hash collisions.
+      — claimed: Plastic-time, branch rrfz/bugfix-r3.12-js-module-collisions
 - [x] Refuse oversized GNU tar long names and link targets instead of silently truncating member identities.
       — claimed: Afloat16, branch bugfix/r3.12-tar-long-identities-20261109
       Source [`de2c6390`](https://github.com/Afloat16/craft-anything/commit/de2c63908909cab675887103921ed2601b1bae9b) passed [formats tests, fmt and clippy](https://github.com/Afloat16/claude-mem/actions/runs/42640688213/job/129240669663)
@@ -1609,6 +1618,8 @@ Owner: open · Status: in progress
 - [x] WITHOUT ROWID rows stored before ALTER TABLE ADD COLUMN show the added columns' defaults,
       as rowid tables already do, instead of NULL.
       — claimed: Plastic-time, branch bugfix/r3.12-sqlite-without-rowid-added-columns
+- [x] Discard decoded SQLite rows before the requested offset instead of retaining every preceding row, and keep zero-sized pages bounded while preserving readable-row offsets and key order.
+      — claimed: Afloat16, branch bugfix/r3.12-sqlite-page-retention-20261110
 - [x] Fill added SQLite columns whose DEFAULT is a hex integer or a literal in parentheses
       (`DEFAULT 0x10`, `DEFAULT (5)`); they show NULL with a note today. Hex integers keep
       SQLite's 64-bit two's-complement value; one parenthesized literal is filled, while
@@ -1686,6 +1697,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-certificate-signature-oids-20261110
 - [x] Distinguish literal punctuation and multi-valued attributes in the displayed X.509 issuer and subject.
       — claimed: Afloat16, branch bugfix/r3.12-certificate-name-rendering
+- [x] Match CMS signer certificates by issuer and serial number or subject key identifier; leave absent matches unknown instead of selecting an unrelated certificate and chain.
+      — claimed: Afloat16, branch bugfix/r3.12-cms-signer-identities-20261110
 - [x] Read HTTP Host fields only from the header section.
       — claimed: Afloat16, branch bugfix/r3.12-http-host-boundary-20261105
 - [x] Select certificate issuers by successful signature verification among matching names, follow self-issued key rollover, and report interrupted chains as incomplete.
@@ -1740,8 +1753,12 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-iostore-complete-header-20261105
 - [x] Reject CBOR collections that exceed the EVM metadata reader's limits and invalid text strings.
       — claimed: Afloat16, branch bugfix/r3.12-evm-cbor
+- [x] Keep EVM bytecode intact when its CBOR trailer repeats a metadata key or uses a non-text map key.
+      — claimed: Afloat16, branch bugfix/r3.12-evm-cbor-map-keys-20261110
 - [x] Require evidence of a rejecting payment branch before labelling EVM functions nonpayable; reading CALLVALUE alone accepts payments.
       — claimed: Afloat16, branch bugfix/r3.12-evm-payment-guards
+- [x] Avoid rescanning every retained EVM selector for repeated dispatcher comparisons.
+      — claimed: Afloat16, branch bugfix/r3.12-evm-selector-dedup-20261110
 - [x] Reject invalid marshal long integer digits.
       — claimed: Afloat16, branch bugfix/r3.12-pyc-long-limb-validation-20261105
 - [x] Check expanded RGBA image sizes and enforce output budgets before allocation.
@@ -1754,6 +1771,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-tensor-zero-dimension-product-20261105
 - [x] Find APK signatures through valid ZIP comments and framed central directories.
       — claimed: Afloat16, branch bugfix/r3.12-apk-sign-eocd-comment-boundary-20261105
+- [x] Require APK signer SDK ranges and ordered signature-algorithm lists to match their signed copies, with complete required signer fields, before reporting verification.
+      — claimed: Afloat16, branch bugfix/r3.12-apk-signed-metadata-20261110
 - [x] Keep Android resource packages, child chunks and library records inside their enclosing declared ranges.
       — claimed: Afloat16, branch bugfix/r3.12-arsc-parent-chunk-boundaries-20261109
       Source `ea680eeb9e92`; [format checks](https://github.com/Afloat16/claude-mem/actions/runs/42636776430/job/129226895431) and [compatibility gates](https://github.com/Afloat16/claude-mem/actions/runs/42642583301/job/129247271153) passed.
@@ -1850,6 +1869,11 @@ Owner: open · Status: in progress
       `Foundation.__DataStorage.append(Swift.UnsafeRawPointer, length: Swift.Int) -> ()` where
       `swift-demangle` prints `append(_: Swift.UnsafeRawPointer, length: Swift.Int) -> ()`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-unlabeled-args
+- [x] Swift witness table accessors decode. The demangler read `Wl`, `Wb`, `WT` and `WI` as unknown
+      witness kinds and reported them invalid ("unsupported witness kind"):
+      `_$s7SwiftUI4EdgeO3SetVAESQAAWl` is `lazy protocol witness table accessor for type
+      SwiftUI.Edge.Set and conformance SwiftUI.Edge.Set : Swift.Equatable in SwiftUI`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-witness-accessors
 - [x] Apply the extracted-string limit in file-offset order across UTF-16LE and narrow strings, so an early wide string is not hidden by later ASCII.
       — claimed: Afloat16, branch bugfix/r3.12-earliest-extracted-strings
 - [x] Visit XML plist values only inside a complete, correctly encoded document.
@@ -1894,6 +1918,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-source-map-data-url-fragment
 - [x] Apply WebAssembly name and producer inventory limits across repeated custom sections and report truncation.
       — claimed: Afloat16, branch bugfix/r3.12-wasm-custom-inventory-budget-20261109
+- [x] Bound bytes retained when WebAssembly types and function names are expanded through references, reuse formatted type signatures, and disclose omitted derived metadata.
+      — claimed: Afloat16, branch bugfix/r3.12-wasm-reference-bytes-20261110
       Source `232100030ace`; [format checks](https://github.com/Afloat16/claude-mem/actions/runs/42642340046/job/129246412808) and [compatibility gates](https://github.com/Afloat16/claude-mem/actions/runs/42642340046/job/129246412808) passed.
 - [x] Accept only valid WebAssembly names when reporting custom-section debug and source map URLs.
       — claimed: Afloat16, branch bugfix/r3.12-wasm-debug-names
@@ -1913,6 +1939,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-cil-exception-framing-20261110
 - [x] Read Dart version hashes and feature strings only from the bytes belonging to that snapshot.
       — claimed: Afloat16, branch bugfix/r3.12-dart-snapshot-extent
+- [x] Keep Dart string-pool duplicate tracking within the retained URI and token limits.
+      — claimed: Afloat16, branch bugfix/r3.12-dart-retained-string-budgets-20261110
 - [x] Read a Dart ELF build ID only when its name and descriptor fit the declared note.
       — claimed: Afloat16, branch bugfix/r3.12-dart-note
 - [x] Locate ELF core mapping names after the complete declared table.
@@ -1923,6 +1951,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-index-map-boundaries
 - [x] Preserve the URL delimiter in source-map roots when resolving a relative source file.
       — claimed: Afloat16, branch bugfix/r3.12-source-map-url-root
+- [x] Keep source map annotation URL suffixes intact.
+      — claimed: Plastic-time, branch rrfz/bugfix-r3.12-annotation-20261110
 - [x] Keep DOS relocations inside the declared executable header.
       — claimed: Afloat16, branch bugfix/r3.12-dos-relocation-header-boundary-20261105
 - [x] Keep relocation reads within their declared entry stride and never invent an addend for a truncated RELA.
@@ -1978,6 +2008,8 @@ Owner: open · Status: in progress
 - [x] Reject Java Long and Double constants without their reserved constant-pool slot, including the maximum u16 pool boundary.
       — claimed: Afloat16, branch bugfix/r3.12-java-wide-pool-slot-20261109
       Source `e0dbc3a5b60b`; [full Linux gate](https://github.com/Afloat16/craft-anything/actions/runs/42629757277) passed.
+- [x] Borrow Java attribute names from the constant pool so repeated references cannot multiply temporary parser memory.
+      — claimed: Afloat16, branch bugfix/r3.12-java-attribute-name-borrowing-20261110
 - [x] Unfold JAR manifest attributes as bytes before UTF-8 decoding, preserve value whitespace, and recognize every specified line ending so entry digests use the original filenames.
       — claimed: Afloat16, branch bugfix/r3.12-jar-attribute-bytes-20261110
 - [x] Find the method parameter terminator outside object type names in JVM descriptors.
@@ -2052,6 +2084,12 @@ Owner: open · Status: in progress
       prints `(() -> Swift.Int)?`. An optional protocol composition read `main.P & main.Q?` for
       `(main.P & main.Q)?`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-optional-functions
+- [x] Swift special types decode. A type written with `X` and a kind letter (a non-escaping
+      closure `XE`, an `AnyObject` or class-and-protocol existential, a protocol metatype, a
+      `@convention` or `@autoclosure` function, `Self`, a `weak` or `unowned` type) was reported
+      invalid ("unsupported special type"): `_$s13IDEConsoleKit0A5ThemeC22infoTypeThumbnailImageSo7NSImageCvgAFyXEfU_`
+      is `closure #1 () -> __C.NSImage in IDEConsoleKit.IDEConsoleTheme.infoTypeThumbnailImage.getter : __C.NSImage`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-special-types
 - [x] Python 3.5.0, 3.5.1 and 3.5.2 wrote magic number 3350 into their `.pyc` files, and 3.5.3
       moved to 3351. A file with 3350 is reported as a 3.5 pre-release (`is_release: false`), with
       a note that its code layout may differ. Count 3350 and 3351 as releases of 3.5.
@@ -2061,6 +2099,11 @@ Owner: open · Status: in progress
       operator, so every addressor was reported invalid: `_$s5Books19PAGETURNLOG_ENABLEDSbvau` is
       `Books.PAGETURNLOG_ENABLED.unsafeMutableAddressor : Swift.Bool`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-addressors
+- [x] Swift async thunks decode. `Tu` is the async function pointer of the function before it, and
+      `TY` and `TQ` with an index are its suspend and await resume functions, but the demangler
+      reported all three as an unsupported thunk, so `_$s10XCTestCore5QueueC11synchronizeyyYaFTY0_`
+      is `(1) suspend resume partial function for XCTestCore.Queue.synchronize() async -> ()`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-thunks
 - [x] Swift subscript accessors print the accessor after `subscript` and the type after a colon,
       as `swift-demangle` does. The demangler put the accessor last, so
       `_$s10Foundation4DataV06InlineB0Vys5UInt8VSiciM` read

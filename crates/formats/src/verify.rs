@@ -381,7 +381,7 @@ pub struct MachoCms {
 /// Verify a detached CMS `SignedData` (the Mach-O CMS blob) against the primary CodeDirectory.
 pub fn verify_macho_cms(cms_der: &[u8], code_directory: &[u8]) -> Option<MachoCms> {
     let sd = pkcs7::parse_signed_data(cms_der)?;
-    let mut notes = Vec::new();
+    let mut notes = sd.signer_identity_notes.clone();
     let signer = sd.signer_cert().map(<[u8]>::to_vec);
     let info = signer.as_deref().and_then(der::certificate);
     // Does the signed messageDigest attribute cover this CodeDirectory?
@@ -423,13 +423,10 @@ pub fn verify_macho_cms(cms_der: &[u8], code_directory: &[u8]) -> Option<MachoCm
 /// Order a CMS certificate set so the signer's certificate is first (chain verification starts
 /// from the leaf).
 fn ordered_certs(sd: &pkcs7::SignedData) -> Vec<&[u8]> {
-    let signer = sd.signer_cert();
-    let mut out: Vec<&[u8]> = Vec::new();
-    if let Some(s) = signer {
-        out.push(s);
-    }
+    let Some(signer) = sd.signer_cert() else { return Vec::new() };
+    let mut out: Vec<&[u8]> = vec![signer];
     for c in &sd.certificates {
-        if Some(c.as_slice()) != signer {
+        if c.as_slice() != signer {
             out.push(c);
         }
     }
@@ -449,7 +446,8 @@ pub struct ApkSigner {
     pub digest_matches: bool,
     /// The signer's first certificate's public key matched the signing public key.
     pub public_key_matches_certificate: bool,
-    /// Overall: signature valid AND content digest matches AND key matches the certificate.
+    /// Overall: required signer fields agree, signature valid, content digest matches and
+    /// the signing key matches the certificate.
     pub verified: bool,
     pub algorithm: Option<String>,
     /// SHA-256 of the signer's first certificate: the fingerprint users compare.
@@ -479,6 +477,9 @@ fn apk_algorithm(id: u32) -> Option<(SigScheme, Digest, bool)> {
 /// Verify one APK v2/v3 signer against the full APK bytes.
 pub fn verify_apk_signer(apk: &[u8], block_offset: u64, signer: &crate::apk_sign::Signer) -> ApkSigner {
     let mut notes = Vec::new();
+    if let Some(reason) = signer.verification_error {
+        notes.push(reason.into());
+    }
     let certificate_sha256 = signer.certificates.first().map(|c| sha256_hex(c));
     let public_key_matches_certificate = match (signer.certificates.first(), der::spki_parts(&signer.public_key)) {
         (Some(c), Some((_, _))) => der::certificate_spki(c) == Some(signer.public_key.as_slice()),
@@ -528,7 +529,7 @@ pub fn verify_apk_signer(apk: &[u8], block_offset: u64, signer: &crate::apk_sign
             }
         }
     };
-    let verified = signature_valid.is_valid() && digest_matches && public_key_matches_certificate;
+    let verified = signer.verification_error.is_none() && signature_valid.is_valid() && digest_matches && public_key_matches_certificate;
     ApkSigner {
         scheme: signer.scheme,
         signature_valid,
@@ -611,7 +612,7 @@ pub struct Pkcs7Signature {
 /// Verify a detached PKCS#7/CMS signature over `content` (for JAR signing, the `.SF` file bytes).
 pub fn verify_pkcs7_detached(content: &[u8], pkcs7_der: &[u8]) -> Option<Pkcs7Signature> {
     let sd = pkcs7::parse_signed_data(pkcs7_der)?;
-    let mut notes = Vec::new();
+    let mut notes = sd.signer_identity_notes.clone();
     let signer = sd.signer_cert().map(<[u8]>::to_vec);
     let cert_sha = signer.as_deref().map(sha256_hex);
     let subject = signer.as_deref().and_then(der::certificate).map(|c| c.subject);
@@ -793,6 +794,198 @@ pub fn verify_jar_integrity(manifest_mf: &[u8], sf: &[u8], mut read_entry: impl 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn der_fields(data: &[u8]) -> Vec<Vec<u8>> {
+        der::children(data, &der::read(data, 0).unwrap()).iter().map(|field| field.whole(data).unwrap().to_vec()).collect()
+    }
+
+    fn cert_with_key_id(name: &str, key_id: &[u8], value_tag: u8, duplicate: bool, critical: Option<&[u8]>) -> Vec<u8> {
+        use craft_anything_testkit::{android as a, crypto};
+        let original = crypto::self_signed_rsa(name, "Org");
+        let mut cert = der_fields(&original);
+        let mut tbs = der_fields(&cert[0]);
+        let mut fields = vec![a::der_oid("2.5.29.14")];
+        if let Some(critical) = critical {
+            fields.push(a::der(0x01, critical));
+        }
+        fields.push(a::der(0x04, &a::der(value_tag, key_id)));
+        let extension = a::der(0x30, &fields.concat());
+        let extensions = if duplicate { [extension.clone(), extension].concat() } else { extension };
+        tbs.push(a::der(0xa3, &a::der(0x30, &extensions)));
+        cert[0] = a::der(0x30, &tbs.concat());
+        cert[2] = a::der(0x03, &[vec![0], crypto::rsa_sign_sha256(&cert[0])].concat());
+        a::der(0x30, &cert.concat())
+    }
+
+    fn issuer_serial(cert: &[u8]) -> Vec<u8> {
+        use craft_anything_testkit::android as a;
+        let parts = der::certificate_parts(cert).unwrap();
+        a::der(0x30, &[parts.issuer.to_vec(), a::der(0x02, parts.serial)].concat())
+    }
+
+    fn cms_with_identity(content: &[u8], certs: &[Vec<u8>], sid: Vec<u8>, version: u8) -> Vec<u8> {
+        use craft_anything_testkit::{android as a, crypto};
+        let original = crypto::cms_detached_rsa(content, "Signer", "Org");
+        let mut ci = der_fields(&original);
+        let mut sd = der_fields(&der_fields(&ci[1])[0]);
+        let mut signer = der_fields(&der_fields(&sd[4])[0]);
+        signer[0] = a::der(0x02, &[version]);
+        signer[1] = sid;
+        sd[0] = a::der(0x02, &[version]);
+        sd[3] = a::der(0xa0, &certs.concat());
+        sd[4] = a::der(0x31, &a::der(0x30, &signer.concat()));
+        ci[1] = a::der(0xa0, &a::der(0x30, &sd.concat()));
+        a::der(0x30, &ci.concat())
+    }
+
+    fn assert_unknown_cms_signer(cms: &[u8], content: &[u8]) {
+        let parsed = pkcs7::parse_signed_data(cms).unwrap();
+        assert!(parsed.signer_cert().is_none());
+        assert!(ordered_certs(&parsed).is_empty());
+        let macho = verify_macho_cms(cms, content).unwrap();
+        assert!(!macho.authenticated);
+        assert!(macho.signer_subject.is_none());
+        assert!(macho.chain.links.is_empty());
+        let jar = verify_pkcs7_detached(content, cms).unwrap();
+        assert!(!jar.signature_valid.is_valid());
+        assert!(jar.signer_subject.is_none());
+        assert!(jar.certificate_sha256.is_none());
+        assert!(jar.chain.links.is_empty());
+    }
+
+    #[test]
+    fn cms_unmatched_issuer_or_serial_keeps_the_signer_unknown() {
+        use craft_anything_testkit::{android as a, crypto};
+        let content = b"signed identity fixture";
+        let cert = crypto::self_signed_rsa("Signer", "Org");
+        let fields = der_fields(&issuer_serial(&cert));
+        for sid in [a::der(0x30, &[fields[0].clone(), a::der(0x02, &[9])].concat()), issuer_serial(&crypto::self_signed_rsa("Other", "Org"))] {
+            let cms = cms_with_identity(content, std::slice::from_ref(&cert), sid, 1);
+            assert_unknown_cms_signer(&cms, content);
+        }
+    }
+
+    #[test]
+    fn cms_key_identifier_selects_the_matching_certificate() {
+        use craft_anything_testkit::android as a;
+        let content = b"signed key identifier fixture";
+        let key_id = [7; 20];
+        let signer = cert_with_key_id("Signer", &key_id, 0x04, false, None);
+        let unrelated = cert_with_key_id("Unrelated", &[8; 20], 0x04, false, None);
+        let cms = cms_with_identity(content, &[unrelated, signer.clone()], a::der(0x80, &key_id), 3);
+        let parsed = pkcs7::parse_signed_data(&cms).unwrap();
+        assert_eq!(parsed.signer_cert(), Some(signer.as_slice()));
+        let result = verify_macho_cms(&cms, content).unwrap();
+        assert!(result.authenticated);
+        assert_eq!(result.signer_subject.as_deref(), Some("CN=Signer, O=Org"));
+        assert!(result.chain.fully_linked);
+        assert!(verify_pkcs7_detached(content, &cms).unwrap().signature_valid.is_valid());
+    }
+
+    #[test]
+    fn cms_missing_key_identifier_does_not_fall_back_to_a_certificate() {
+        use craft_anything_testkit::{android as a, crypto};
+        let content = b"missing key identifier fixture";
+        for cert in [crypto::self_signed_rsa("Signer", "Org"), cert_with_key_id("Signer", &[8; 20], 0x04, false, None)] {
+            let cms = cms_with_identity(content, &[cert], a::der(0x80, &[7; 20]), 3);
+            assert_unknown_cms_signer(&cms, content);
+        }
+    }
+
+    #[test]
+    fn cms_key_identifier_requires_one_well_formed_extension() {
+        use craft_anything_testkit::android as a;
+        let content = b"malformed key identifier extension fixture";
+        for (tag, duplicate) in [(0x02, false), (0x04, true)] {
+            let cert = cert_with_key_id("Signer", &[7; 20], tag, duplicate, None);
+            let cms = cms_with_identity(content, &[cert], a::der(0x80, &[7; 20]), 3);
+            assert_unknown_cms_signer(&cms, content);
+        }
+    }
+
+    #[test]
+    fn cms_issuer_serial_finds_a_later_certificate() {
+        use craft_anything_testkit::crypto;
+        let content = b"later certificate fixture";
+        let cert = crypto::self_signed_rsa("Signer", "Org");
+        let cms = cms_with_identity(content, &[crypto::self_signed_rsa("Other", "Org"), cert.clone()], issuer_serial(&cert), 1);
+        assert_eq!(pkcs7::parse_signed_data(&cms).unwrap().signer_cert(), Some(cert.as_slice()));
+        assert!(verify_macho_cms(&cms, content).unwrap().authenticated);
+    }
+
+    #[test]
+    fn cms_key_identifier_checks_critical_flag_encoding() {
+        use craft_anything_testkit::android as a;
+        let content = b"key identifier critical flag fixture";
+        for flag in [&[0xff][..], &[0], &[], &[1], &[0xff, 0]] {
+            let cert = cert_with_key_id("Signer", &[7; 20], 0x04, false, Some(flag));
+            let cms = cms_with_identity(content, std::slice::from_ref(&cert), a::der(0x80, &[7; 20]), 3);
+            if matches!(flag, [0] | [0xff]) {
+                assert_eq!(pkcs7::parse_signed_data(&cms).unwrap().signer_cert(), Some(cert.as_slice()));
+                assert!(verify_macho_cms(&cms, content).unwrap().authenticated);
+            } else {
+                assert_unknown_cms_signer(&cms, content);
+            }
+        }
+    }
+
+    #[test]
+    fn cms_signer_identifier_rejects_unknown_structure() {
+        use craft_anything_testkit::{android as a, crypto};
+        let cert = crypto::self_signed_rsa("Signer", "Org");
+        let fields = der_fields(&issuer_serial(&cert));
+        for (sid, version) in [(a::der(0x31, &fields.concat()), 1), (a::der(0x30, &[fields[0].clone(), a::der(0x04, &[1, 2, 3, 4, 5])].concat()), 1)] {
+            let cms = cms_with_identity(b"identifier structure", std::slice::from_ref(&cert), sid, version);
+            assert!(pkcs7::parse_signed_data(&cms).is_none());
+        }
+    }
+
+    /// A wrong SignerInfo version is a readable fact, not a reason to discard its identity.
+    #[test]
+    fn cms_identifier_version_mismatches_preserve_the_signature_and_report_a_note() {
+        use craft_anything_testkit::android as a;
+        let content = b"readable version mismatch";
+        let key_id = [7; 20];
+        let cert = cert_with_key_id("Signer", &key_id, 0x04, false, None);
+        for (sid, version) in [(issuer_serial(&cert), 3), (issuer_serial(&cert), 0), (a::der(0x80, &key_id), 1), (a::der(0x80, &key_id), 9)] {
+            let cms = cms_with_identity(content, std::slice::from_ref(&cert), sid, version);
+            let parsed = pkcs7::parse_signed_data(&cms).expect("readable SignedData");
+            assert_eq!(parsed.certificates.as_slice(), std::slice::from_ref(&cert));
+            assert_eq!(parsed.digest, Some(Digest::Sha256));
+            assert!(!parsed.signature_algorithm.is_empty());
+            assert_eq!(parsed.signer_cert(), Some(cert.as_slice()));
+            let macho = verify_macho_cms(&cms, content).unwrap();
+            assert!(macho.authenticated);
+            assert_eq!(macho.certificate_count, 1);
+            assert!(macho.notes.iter().any(|note| note.contains("version")));
+            let jar = verify_pkcs7_detached(content, &cms).unwrap();
+            assert!(jar.signature_valid.is_valid());
+            assert!(jar.notes.iter().any(|note| note.contains("version")));
+        }
+    }
+
+    /// An empty serial cannot identify a signer, but its certificates and algorithms remain useful.
+    #[test]
+    fn cms_empty_signer_serial_preserves_metadata_and_leaves_the_signer_unknown() {
+        use craft_anything_testkit::{android as a, crypto};
+        let content = b"readable empty serial";
+        let cert = crypto::self_signed_rsa("Signer", "Org");
+        let fields = der_fields(&issuer_serial(&cert));
+        for version in [1, 3] {
+            let sid = a::der(0x30, &[fields[0].clone(), a::der(0x02, &[])].concat());
+            let cms = cms_with_identity(content, std::slice::from_ref(&cert), sid, version);
+            let parsed = pkcs7::parse_signed_data(&cms).expect("readable SignedData");
+            assert_eq!(parsed.certificates.as_slice(), std::slice::from_ref(&cert));
+            assert_eq!(parsed.digest, Some(Digest::Sha256));
+            assert!(!parsed.signature_algorithm.is_empty());
+            assert_unknown_cms_signer(&cms, content);
+            let macho = verify_macho_cms(&cms, content).unwrap();
+            assert_eq!(macho.certificate_count, 1);
+            assert!(macho.notes.iter().any(|note| note.contains("serial") && note.contains("empty")));
+            let jar = verify_pkcs7_detached(content, &cms).unwrap();
+            assert!(jar.notes.iter().any(|note| note.contains("serial") && note.contains("empty")));
+        }
+    }
 
     #[test]
     fn base64_vectors() {

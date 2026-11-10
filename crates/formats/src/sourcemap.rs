@@ -316,7 +316,7 @@ pub fn find_source_mapping_url(js: &str) -> Option<String> {
         let t = line.trim();
         for prefix in ["//# sourceMappingURL=", "//@ sourceMappingURL=", "/*# sourceMappingURL="] {
             if let Some(rest) = t.strip_prefix(prefix) {
-                let url = rest.trim_end_matches("*/").trim();
+                let url = if prefix.starts_with("/*") { rest.strip_suffix("*/").unwrap_or(rest).trim() } else { rest.trim() };
                 if !url.is_empty() {
                     return Some(url.to_string());
                 }
@@ -365,6 +365,15 @@ pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Covers the reported input and the neighboring valid boundary.
+    #[test]
+    fn annotation_url_suffixes_survive() {
+        for prefix in ["//# sourceMappingURL=", "//@ sourceMappingURL="] {
+            assert_eq!(find_source_mapping_url(&format!("{prefix}https://example.test/maps/*/")), Some("https://example.test/maps/*/".into()));
+        }
+        assert_eq!(find_source_mapping_url("/*# sourceMappingURL=map.json */"), Some("map.json".into()));
+    }
 
     #[test]
     fn lookup_keeps_coincident_mappings_and_stops_at_an_unmapped_segment() {
