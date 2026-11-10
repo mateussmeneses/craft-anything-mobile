@@ -375,8 +375,17 @@ fn load_pkg(ctx: &Ctx<'_>, path: Option<&str>, want_dex: bool) -> Result<Pkg, To
         return Err(ToolError::unsupported(format!("{} is not an APK or DEX file", pkg.input.name))
             .with_remediation("Pass an .apk (or a classes.dex); run triage to see what this file is."));
     }
-    let z =
+    let mut z =
         zip::parse(&pkg.input.bytes, 500_000).map_err(|e| ToolError::new(ErrorCode::NotSupported, format!("Couldn't read the APK's ZIP directory: {e}")))?;
+    // A split APK set (.apks, .xapk): read its base APK, the one whose manifest names no split.
+    if !z.entries.iter().any(|e| e.name == "AndroidManifest.xml")
+        && let Some((name, base)) = base_of_set(&pkg.input.bytes, &z)
+    {
+        pkg.warnings.push(format!("read the base APK {name} of this split APK set; other splits (resources, native code, features) are not read here"));
+        pkg.input.bytes = base.into();
+        z = zip::parse(&pkg.input.bytes, 500_000)
+            .map_err(|e| ToolError::new(ErrorCode::NotSupported, format!("Couldn't read the base APK's ZIP directory: {e}")))?;
+    }
     if want_dex {
         let mut total = 0u64;
         let mut names: Vec<&zip::ZipEntry> = z.entries.iter().filter(|e| is_root_dex(&e.name)).collect();
@@ -399,6 +408,31 @@ fn load_pkg(ctx: &Ctx<'_>, path: Option<&str>, want_dex: bool) -> Result<Pkg, To
     }
     pkg.zip = Some(z);
     Ok(pkg)
+}
+
+/// Most APKs looked at when finding a set's base.
+const MAX_SET_APKS: usize = 256;
+
+/// The base APK of a split APK set: its name and bytes. `None` when the ZIP holds no APK whose
+/// manifest names no split.
+fn base_of_set(bytes: &[u8], z: &zip::ZipArchive) -> Option<(String, Vec<u8>)> {
+    let mut apks: Vec<&zip::ZipEntry> = z.entries.iter().filter(|e| !e.is_dir && e.name.to_ascii_lowercase().ends_with(".apk")).take(MAX_SET_APKS).collect();
+    // Look at the likely names first; every APK is still checked by its manifest.
+    apks.sort_by_key(|e| {
+        let n = e.name.to_ascii_lowercase();
+        !(n.ends_with("base.apk") || n.ends_with("base-master.apk"))
+    });
+    apks.into_iter().find_map(|e| {
+        let inner = zip::read_entry(bytes, e, MAX_APK).ok()?;
+        let iz = zip::parse(&inner, 500_000).ok()?;
+        let m = iz.entries.iter().find(|x| x.name == "AndroidManifest.xml")?;
+        let doc = axml::parse(&zip::read_entry(&inner, m, MAX_MEMBER).ok()?).ok()?;
+        let is_split = doc.nodes.iter().any(|n| match n {
+            axml::Node::Start { name, attributes, .. } if name == "manifest" => attributes.iter().any(|a| a.name == "split" && !a.value.is_empty()),
+            _ => false,
+        });
+        (!is_split).then(|| (e.name.clone(), inner))
+    })
 }
 
 fn member(pkg: &Pkg, name: &str) -> Option<Result<Vec<u8>, String>> {
@@ -1357,6 +1391,41 @@ mod tests {
 
     fn apk() -> String {
         craft_anything_testkit::temp_file("notes.apk", &fx::notes_apk()).to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_split_apk_set_is_read_through_its_base() {
+        use craft_anything_testkit::electron::zip_stored;
+        let split_manifest = fx::axml(&[
+            fx::AxNode::Start(
+                "manifest",
+                vec![
+                    fx::AxAttr { name: "package", res_id: None, val: fx::AxVal::Str("com.example.notes") },
+                    fx::AxAttr { name: "split", res_id: None, val: fx::AxVal::Str("config.en") },
+                ],
+            ),
+            fx::AxNode::End("manifest"),
+        ]);
+        let split = zip_stored(&[("AndroidManifest.xml", &split_manifest)]);
+        // The split comes first and is named like a base, so only its manifest tells them apart.
+        let set = zip_stored(&[("splits/base.apk", &split), ("splits/notes-main.apk", &fx::notes_apk())]);
+        let path = craft_anything_testkit::temp_file("notes.apks", &set).to_string_lossy().into_owned();
+        let e = Engine::new(crate::testing::session());
+        let single = call(&e, "android_package_show", json!({"path": apk()}));
+        let v = call(&e, "android_package_show", json!({"path": path}));
+        assert_eq!(v["result"]["package"], single["result"]["package"]);
+        assert_eq!(v["result"]["dex"].as_array().map(Vec::len), single["result"]["dex"].as_array().map(Vec::len));
+        assert!(
+            v["limitations"].as_array().unwrap().iter().any(|l| l["message"].as_str().is_some_and(|m| m.contains("splits/notes-main.apk"))),
+            "{}",
+            v["limitations"]
+        );
+        let c = call(&e, "android_classes_find", json!({"path": path, "query": "notes"}));
+        assert!(c["result"].to_string().len() > 2);
+        // A set with no base reads as before: an archive with no manifest at its root.
+        let only_split = craft_anything_testkit::temp_file("x.apks", &zip_stored(&[("a.apk", &split)])).to_string_lossy().into_owned();
+        let v = call(&e, "android_package_show", json!({"path": only_split}));
+        assert!(v["limitations"].as_array().unwrap().iter().any(|l| l["code"] == "no_manifest"));
     }
 
     #[test]

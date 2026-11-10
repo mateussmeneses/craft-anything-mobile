@@ -2268,8 +2268,10 @@ Owner: open · Status: in progress
 - [x] Open split APKs, `.apks`, `.xapk` and `.aab` as one app: base and splits named, the
       manifest read from the base module (an AAB's is protobuf, not binary XML)
       (`android_bundle_show`, `formats::aapt_proto`)
-- [ ] Let the other `android_*` tools (classes, resources, components) read a set's base APK or
-      a bundle's base module directly, not only a single APK
+- [x] Let the other `android_*` tools (classes, resources, components) read a split APK set's
+      base APK directly (found by its manifest, not its name)
+- [ ] The same for a bundle's base module: its DEX files are under `base/dex/`, its manifest is
+      protocol buffers and its resources are `resources.pb`, not `resources.arsc`
 - [ ] Check `android_bundle_show` on a real `.aab` (no bundletool or Gradle here to make one) and
       a real `.xapk`
 - [x] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
