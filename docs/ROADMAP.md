@@ -1990,6 +1990,7 @@ Owner: open · Status: todo
 - [x] Check `adb_ui_show` live on a screen with a real password field: Android's dump held the
       masked password and, once shown, unmarked it, so no typed text is returned at all now
 - [ ] `adb_input_send`: taps, text, keys and swipes as consented device changes
+      — claimed: mateussmeneses, branch feature/r6.3-input-send
 - [ ] `adb_walkthrough_record`: a named sequence of steps with a picture and a control tree after
       each, saved so a check can replay it
 - [ ] App state: current activity, back stack, permissions granted
