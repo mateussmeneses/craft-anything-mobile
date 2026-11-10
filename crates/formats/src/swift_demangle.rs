@@ -31,6 +31,40 @@ pub struct Demangled {
     pub reason: Option<String>,
 }
 
+/// What a function type says about itself besides its parameters and result.
+#[derive(Debug, Clone, PartialEq, Default)]
+struct FnAttrs {
+    is_async: bool,
+    /// `@Sendable`.
+    sendable: bool,
+    /// `@isolated(any)`.
+    isolated_any: bool,
+    throws: Throws,
+    /// The global actor of `@Swift.MainActor`.
+    actor: Option<Box<N>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+enum Throws {
+    #[default]
+    No,
+    /// `throws`.
+    Any,
+    /// `throws(E)`.
+    Typed(Box<N>),
+}
+
+/// A marker on the stack for a function type to pick up, from the letters after `Y`.
+#[derive(Debug, Clone, PartialEq)]
+enum FnMarker {
+    Sendable,
+    IsolatedAny,
+    /// `Yc`: the global actor type it popped.
+    Actor(Box<N>),
+    /// `YK`: the error type it popped.
+    Thrown(Box<N>),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum N {
     Ident(String),
@@ -56,8 +90,7 @@ enum N {
     Func {
         params: Box<N>,
         result: Box<N>,
-        throws: bool,
-        is_async: bool,
+        attrs: FnAttrs,
     },
     Metatype(Box<N>),
     /// The metatype of an existential type (`Xp`), printed `.Type` like any metatype.
@@ -100,6 +133,7 @@ enum N {
     FirstMarker,
     Throws,
     Async,
+    FnMarker(FnMarker),
     Requirement(String),
     Sig {
         reqs: Vec<String>,
@@ -240,9 +274,16 @@ impl<'a> D<'a> {
 
     fn pop_type(&mut self) -> R<N> {
         match self.pop()? {
-            N::Ident(_) | N::Private(_) | N::Operator(_) | N::EmptyList | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } => {
-                Err("expected a type".into())
-            }
+            N::Ident(_)
+            | N::Private(_)
+            | N::Operator(_)
+            | N::EmptyList
+            | N::FirstMarker
+            | N::Throws
+            | N::Async
+            | N::FnMarker(_)
+            | N::Requirement(_)
+            | N::Sig { .. } => Err("expected a type".into()),
             N::Module(m) => Err(format!("expected a type, found module {m}")),
             other => Ok(other),
         }
@@ -499,28 +540,46 @@ impl<'a> D<'a> {
     fn pop_params(&mut self) -> R<N> {
         match self.pop()? {
             N::EmptyList => Ok(N::Tuple(Vec::new())),
-            N::Ident(_) | N::Private(_) | N::Operator(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_) => {
-                Err("expected parameter types".into())
-            }
+            N::Ident(_)
+            | N::Private(_)
+            | N::Operator(_)
+            | N::FirstMarker
+            | N::Throws
+            | N::Async
+            | N::FnMarker(_)
+            | N::Requirement(_)
+            | N::Sig { .. }
+            | N::Module(_) => Err("expected parameter types".into()),
             other => Ok(other),
         }
     }
 
-    fn pop_func_type(&mut self) -> R<N> {
-        let mut throws = false;
-        let mut is_async = false;
-        loop {
-            if self.pop_if(|n| matches!(n, N::Throws)).is_some() {
-                throws = true;
-            } else if self.pop_if(|n| matches!(n, N::Async)).is_some() {
-                is_async = true;
-            } else {
-                break;
+    /// The markers a function type takes from the top of the stack, in the one order the mangling
+    /// has them (from the top): a global actor or `@isolated(any)`, then `throws`, then
+    /// `@Sendable`, then `async`. Each is optional and none repeats.
+    fn pop_fn_attrs(&mut self) -> FnAttrs {
+        let mut a = FnAttrs::default();
+        if let Some(N::FnMarker(m)) = self.pop_if(|n| matches!(n, N::FnMarker(FnMarker::Actor(_) | FnMarker::IsolatedAny))) {
+            match m {
+                FnMarker::Actor(t) => a.actor = Some(t),
+                _ => a.isolated_any = true,
             }
         }
+        match self.pop_if(|n| matches!(n, N::Throws | N::FnMarker(FnMarker::Thrown(_)))) {
+            Some(N::FnMarker(FnMarker::Thrown(t))) => a.throws = Throws::Typed(t),
+            Some(_) => a.throws = Throws::Any,
+            None => {}
+        }
+        a.sendable = self.pop_if(|n| matches!(n, N::FnMarker(FnMarker::Sendable))).is_some();
+        a.is_async = self.pop_if(|n| matches!(n, N::Async)).is_some();
+        a
+    }
+
+    fn pop_func_type(&mut self) -> R<N> {
+        let attrs = self.pop_fn_attrs();
         let params = self.pop_params()?;
         let result = self.pop_params()?;
-        Ok(N::Func { params: Box::new(params), result: Box::new(result), throws, is_async })
+        Ok(N::Func { params: Box::new(params), result: Box::new(result), attrs })
     }
 
     /// The protocols of an existential, nothing for `Any`, or a list whose first entry
@@ -543,15 +602,10 @@ impl<'a> D<'a> {
         Ok(protos)
     }
 
-    /// The function type of `XE` and its relatives: the parameters and the result, then at most one
-    /// `throws` marker and one `async` marker, in that order from the top of the stack. `attr` is the
-    /// word printed before the type, if any.
+    /// The function type of `XE` and its relatives: the parameters and the result, then the markers
+    /// of any function type. `attr` is the word printed before the type, if any.
     fn special_func(&mut self, attr: &'static str) -> R<N> {
-        let throws = self.pop_if(|n| matches!(n, N::Throws)).is_some();
-        let is_async = self.pop_if(|n| matches!(n, N::Async)).is_some();
-        let params = self.pop_params()?;
-        let result = self.pop_params()?;
-        let f = N::Func { params: Box::new(params), result: Box::new(result), throws, is_async };
+        let f = self.pop_func_type()?;
         Ok(if attr.is_empty() { f } else { N::Attributed { text: attr, inner: Box::new(f), wrapped: true } })
     }
 
@@ -642,7 +696,7 @@ impl<'a> D<'a> {
     fn shape_ok(&self, top_func: bool, need_name: bool) -> bool {
         let st = &self.stack;
         let at = |i: usize| i.checked_sub(1).and_then(|j| st.get(j));
-        let typeish = |n: Option<&N>| matches!(n, Some(n) if !matches!(n, N::Ident(_) | N::Private(_) | N::Operator(_) | N::FirstMarker | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. } | N::Module(_)));
+        let typeish = |n: Option<&N>| matches!(n, Some(n) if !matches!(n, N::Ident(_) | N::Private(_) | N::Operator(_) | N::FirstMarker | N::Throws | N::Async | N::FnMarker(_) | N::Requirement(_) | N::Sig { .. } | N::Module(_)));
         let mut i = st.len();
         if matches!(at(i), Some(N::Sig { .. })) {
             i -= 1;
@@ -656,7 +710,7 @@ impl<'a> D<'a> {
                 _ => return false,
             }
         } else {
-            while matches!(at(i), Some(N::Throws | N::Async)) {
+            while matches!(at(i), Some(N::Throws | N::Async | N::FnMarker(_))) {
                 i -= 1;
             }
             let n = match at(i) {
@@ -797,12 +851,45 @@ impl<'a> D<'a> {
         self.push(N::Global { prefix: prefix.into(), inner: Box::new(inner), suffix: String::new() })
     }
 
+    /// `TK` and `Tk`: the getter or the setter of a key path. The operand under the base is the
+    /// property or subscript it reads, such as a property descriptor `vp` or `vpZ` or a subscript
+    /// `ip`, and the base is the type the path starts from. A global, a module or a name in either
+    /// place is not one, and `swift-demangle` rejects those too.
+    fn key_path_accessor(&mut self, getter: bool) -> R<()> {
+        if matches!(self.stack.last(), Some(N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. })) {
+            return Err("key path base is not a type".into());
+        }
+        let base = self.pop_type()?;
+        let entity = match self.pop()? {
+            e @ N::Entity { .. } => e,
+            _ => return Err("key path of a non-entity".into()),
+        };
+        let phrase = if getter { "key path getter for" } else { "key path setter for" };
+        let text = format!("{phrase} {} : {}", render(&entity, 0), render(&base, 0));
+        self.push(N::Global { prefix: text, inner: Box::new(N::EmptyList), suffix: String::new() })
+    }
+
     /// `Tu`, `TY` and `TQ`: the async function pointer, or the suspend or await resume function,
     /// of the function before it. The operand is a function, a type or another global (a thunk of
     /// a thunk is allowed); a bare name, a marker or a module is not.
     fn async_thunk(&mut self, prefix: String) -> R<()> {
         let inner = self.pop_type()?;
         self.push(N::Global { prefix, inner: Box::new(inner), suffix: String::new() })
+    }
+
+    /// `Tv` and an optional index: the outlined variable of the symbol before it, `#0` for `Tv_`
+    /// and `#1` for `Tv0_`. The operand is a function, a type or a global, but not a bare name, a
+    /// module or another outlined variable. `swift-demangle` stops at an index of 2^31 or more.
+    fn outlined_variable(&mut self) -> R<()> {
+        let i = self.index()?;
+        if i >= 1 << 31 {
+            return Err("outlined variable index too large".into());
+        }
+        if matches!(self.stack.last(), Some(N::Global { prefix, .. }) if prefix.starts_with("outlined variable")) {
+            return Err("outlined variable of an outlined variable".into());
+        }
+        let inner = self.pop_type()?;
+        self.push(N::Global { prefix: format!("outlined variable #{i} of"), inner: Box::new(inner), suffix: String::new() })
     }
 
     /// `WC`: the case's entity, such as `main.E.one(main.E.Type) -> main.E`, or a type. A module, a
@@ -863,6 +950,26 @@ impl<'a> D<'a> {
             module @ N::Module(_) => Ok(module),
             _ => Err("expected a module".into()),
         }
+    }
+
+    /// `WZ` and `Wz`: the one-time initialization function or token of a stored variable. The
+    /// operand is a context (a module, a nominal type or an extension), then the variable's name or
+    /// private name, then the `_` that ends it. Only the name is printed; the context is read and
+    /// dropped, as `swift-demangle` prints it. A bare name, a type or module in place of the name,
+    /// or any other context is rejected.
+    fn one_time_init(&mut self, what: &str) -> R<()> {
+        if !matches!(self.pop()?, N::FirstMarker) {
+            return Err("one-time initialization without a name marker".into());
+        }
+        let name = match self.pop()? {
+            n @ (N::Ident(_) | N::Private(_)) => n,
+            _ => return Err("expected a variable name".into()),
+        };
+        match self.pop()? {
+            N::Ident(_) | N::Module(_) | N::Nominal { .. } | N::Extension { .. } => {}
+            _ => return Err("expected a context".into()),
+        }
+        self.push(N::Global { prefix: what.into(), inner: Box::new(name), suffix: String::new() })
     }
 
     /// `WT`: a conformance, the path of an associated type, and the protocol that type conforms
@@ -1074,7 +1181,7 @@ impl<'a> D<'a> {
                 let p = match kind {
                     b'a' => "type metadata accessor for",
                     b'n' => "nominal type descriptor for",
-                    b'N' => "type metadata for",
+                    b'N' => "noncanonical specialized generic type metadata for",
                     b'm' => "metaclass for",
                     b'f' => "full type metadata for",
                     b'p' => "protocol descriptor for",
@@ -1087,9 +1194,9 @@ impl<'a> D<'a> {
                     b'u' => "method lookup function for",
                     b'V' => "property descriptor for",
                     b'c' => "protocol conformance descriptor for",
-                    b'j' => "module descriptor",
+                    b'j' => "opaque type descriptor accessor key for",
                     b'X' => "extension descriptor for",
-                    b'z' => "type metadata heap reference for",
+                    b'z' => "flag for loading of canonical specialized generic type metadata for",
                     b'K' => "metadata instantiation cache for",
                     b'D' => "demangling cache variable for type metadata for",
                     b'F' => "reflection metadata field descriptor",
@@ -1110,7 +1217,12 @@ impl<'a> D<'a> {
                     let ty = self.pop_type()?;
                     return self.push(N::Global { prefix: p.into(), inner: Box::new(ty), suffix: String::new() });
                 }
-                if kind == b'K' && matches!(self.stack.last(), Some(N::FirstMarker | N::EmptyList | N::Throws | N::Async | N::Requirement(_) | N::Sig { .. })) {
+                if kind == b'K'
+                    && matches!(
+                        self.stack.last(),
+                        Some(N::FirstMarker | N::EmptyList | N::Throws | N::Async | N::FnMarker(_) | N::Requirement(_) | N::Sig { .. })
+                    )
+                {
                     return Err("metadata cache of a marker".into());
                 }
                 if p.starts_with("protocol descriptor")
@@ -1218,6 +1330,7 @@ impl<'a> D<'a> {
             b'T' => {
                 let k = self.next()?;
                 let prefix = match k {
+                    b'K' | b'k' => return self.key_path_accessor(k == b'K'),
                     b'o' => "@objc",
                     b'O' => "@nonobjc",
                     b'q' => "method descriptor for",
@@ -1248,6 +1361,7 @@ impl<'a> D<'a> {
                         let phrase = if k == b'Y' { "suspend resume" } else { "await resume" };
                         return self.async_thunk(format!("({i}) {phrase} partial function for"));
                     }
+                    b'v' => return self.outlined_variable(),
                     _ => return Err("unsupported thunk or specialization".into()),
                 };
                 self.global(prefix)
@@ -1255,6 +1369,8 @@ impl<'a> D<'a> {
             b'W' => {
                 let k = self.next()?;
                 match k {
+                    b'Z' => self.one_time_init("one-time initialization function for"),
+                    b'z' => self.one_time_init("one-time initialization token for"),
                     b'P' | b'p' | b'a' | b'G' => {
                         let conf = self.conformance()?;
                         let p = match k {
@@ -1299,6 +1415,16 @@ impl<'a> D<'a> {
             b'X' => self.special_type(),
             b'Y' => match self.next()? {
                 b'a' => self.push(N::Async),
+                b'b' => self.push(N::FnMarker(FnMarker::Sendable)),
+                b'A' => self.push(N::FnMarker(FnMarker::IsolatedAny)),
+                b'c' => {
+                    let t = self.pop_type()?;
+                    self.push(N::FnMarker(FnMarker::Actor(Box::new(t))))
+                }
+                b'K' => {
+                    let t = self.pop_type()?;
+                    self.push(N::FnMarker(FnMarker::Thrown(Box::new(t))))
+                }
                 _ => Err("unsupported function attribute".into()),
             },
             b'Z' => {
@@ -1479,7 +1605,11 @@ fn weight(n: &N, depth: usize) -> usize {
         N::Extension { module, ty } => weight(module, d).saturating_add(weight(ty, d)),
         N::Bound { base, args } => args.iter().fold(weight(base, d), |a, x| a.saturating_add(weight(x, d))),
         N::Tuple(t) => t.iter().fold(0usize, |a, (_, x)| a.saturating_add(weight(x, d))),
-        N::Func { params, result, .. } => weight(params, d).saturating_add(weight(result, d)),
+        N::Func { params, result, attrs } => {
+            let w = weight(params, d).saturating_add(weight(result, d));
+            w.saturating_add(attrs.actor.as_deref().into_iter().chain(typed_throws(&attrs.throws)).fold(0usize, |a, x| a.saturating_add(weight(x, d))))
+        }
+        N::FnMarker(FnMarker::Actor(x) | FnMarker::Thrown(x)) => weight(x, d),
         N::Metatype(x) | N::ExistentialMetatype(x) | N::ReprMetatype(x) | N::Inout(x) | N::OpaqueDecl(x) => weight(x, d),
         N::OpaqueRef { decl, .. } => weight(decl, d),
         N::Attributed { inner, .. } => weight(inner, d),
@@ -1553,7 +1683,14 @@ fn max_param(n: &N, depth: usize) -> u64 {
     }
     match n {
         N::Param(_, i) => *i,
-        N::Func { params, result, .. } => max_param(params, depth + 1).max(max_param(result, depth + 1)),
+        N::Func { params, result, attrs } => attrs
+            .actor
+            .as_deref()
+            .into_iter()
+            .chain(typed_throws(&attrs.throws))
+            .map(|x| max_param(x, depth + 1))
+            .fold(max_param(params, depth + 1).max(max_param(result, depth + 1)), u64::max),
+        N::FnMarker(FnMarker::Actor(x) | FnMarker::Thrown(x)) => max_param(x, depth + 1),
         N::Tuple(t) => t.iter().map(|(_, x)| max_param(x, depth + 1)).max().unwrap_or(0),
         N::Bound { base, args } => args.iter().map(|x| max_param(x, depth + 1)).max().unwrap_or(0).max(max_param(base, depth + 1)),
         N::Metatype(x) | N::ExistentialMetatype(x) | N::ReprMetatype(x) | N::Inout(x) => max_param(x, depth + 1),
@@ -1564,15 +1701,34 @@ fn max_param(n: &N, depth: usize) -> u64 {
     }
 }
 
+fn typed_throws(t: &Throws) -> Option<&N> {
+    match t {
+        Throws::Typed(e) => Some(e),
+        _ => None,
+    }
+}
+
 fn func_text(ty: &N, labels: &[Option<String>], depth: usize) -> String {
     match ty {
-        N::Func { params, result, throws, is_async } => {
-            let mut s = params_text(params, labels, depth);
-            if *is_async {
+        N::Func { params, result, attrs } => {
+            let mut s = String::new();
+            if let Some(actor) = &attrs.actor {
+                s.push_str(&format!("@{} ", render(actor, depth + 1)));
+            }
+            if attrs.isolated_any {
+                s.push_str("@isolated(any) ");
+            }
+            if attrs.sendable {
+                s.push_str("@Sendable ");
+            }
+            s.push_str(&params_text(params, labels, depth));
+            if attrs.is_async {
                 s.push_str(" async");
             }
-            if *throws {
-                s.push_str(" throws");
+            match &attrs.throws {
+                Throws::No => {}
+                Throws::Any => s.push_str(" throws"),
+                Throws::Typed(e) => s.push_str(&format!(" throws({})", render(e, depth + 1))),
             }
             s.push_str(" -> ");
             s.push_str(&render(result, depth + 1));
@@ -1655,7 +1811,7 @@ fn render(n: &N, depth: usize) -> String {
         N::Opaque => "some".into(),
         N::OpaqueDecl(decl) => format!("<<opaque return type of {}>>", render(decl, d)),
         N::OpaqueRef { decl, index } => format!("<<opaque return type of {}>>.{index}", render(decl, d)),
-        N::EmptyList | N::FirstMarker | N::Throws | N::Async => String::new(),
+        N::EmptyList | N::FirstMarker | N::Throws | N::Async | N::FnMarker(_) => String::new(),
         N::Requirement(r) => r.clone(),
         N::Sig { .. } => sig_text(n, 0),
         N::Conformance { ty, proto, module } => format!("{} : {} in {}", render(ty, d), path(proto, d), path(module, d)),

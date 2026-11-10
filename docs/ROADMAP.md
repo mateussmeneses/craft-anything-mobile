@@ -1734,6 +1734,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-zip-multidisk-20261105
 - [x] Check Unity bundle blocks against their declared output lengths.
       — claimed: Afloat16, branch bugfix/r3.12-unity-bundle-decompressed-length-20261105
+- [x] Read only requested byte ranges from uncompressed Unity bundle blocks so small metadata and asset reads do not allocate or reject entire stored blocks, while preserving size checks and compressed-block caching.
+      — claimed: Afloat16, branch bugfix/r3.12-unity-stored-block-ranges-20261110
 - [x] Apply standalone LZMA output budgets to its internal dictionary and reject oversized declared output before decoding.
       — claimed: Afloat16, branch bugfix/r3.12-standalone-lzma-budget-20261109
       Source [`5da8880d`](https://github.com/Afloat16/craft-anything/commit/5da8880d3b56785498cf0c09ae46f300f070322d) passed [formats tests, fmt and clippy](https://github.com/Afloat16/claude-mem/actions/runs/42636776430/job/129226892150)
@@ -1750,6 +1752,8 @@ Owner: open · Status: in progress
 - [x] Check that Unity bundle compressed blocks end before the trailing block table, or the declared
       bundle end for front-positioned tables, so bytes outside the data region cannot supply block contents.
       — claimed: Codex, branch bugfix/r3.12-unity-bundle-data-region; PR #1021
+- [x] Check Unity bundle member ranges against the complete uncompressed block stream, retain invalid entries as unreadable with explicit listing warnings, and preserve valid sibling members, cross-block ranges and empty entries.
+      — claimed: Afloat16, branch bugfix/r3.12-unity-node-ranges-20261110
 - [x] Validate Unity serialized metadata offsets and lengths before reading so short inputs cannot panic or borrow object bytes.
       — claimed: Afloat16, branch bugfix/r3.12-unity-metadata-range-20261109
       Source `de9d7444f509`; [format checks](https://github.com/Afloat16/claude-mem/actions/runs/42633003467/job/129213811357) and [compatibility gates](https://github.com/Afloat16/claude-mem/actions/runs/42642583301/job/129247271153) passed.
@@ -1836,6 +1840,11 @@ Owner: open · Status: in progress
       existential of a protocol named this way was reported invalid ("expected a type"):
       `_$sSS6encode2toys7Encoder_p_tKF` is `Swift.String.encode(to: Swift.Encoder) throws -> ()`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-existentials
+- [x] Swift function type attributes decode. Besides `Ya` (async), a function type can carry `Yb`
+      (`@Sendable`), `Yc` (a global actor, with its type), `YA` (`@isolated(any)`) and `YK` (the
+      error type of `throws(E)`), but the demangler read only `Ya` and reported the rest invalid
+      ("unsupported function attribute"): `_$s1x2v1yyYbcvp` is `x.v1 : @Sendable () -> ()`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-function-attributes
 - [x] Swift value witness symbols decode. A symbol ending `w` and two letters is one of the
       functions the runtime calls to copy, move, destroy or read the enum tag of a value of a
       type, but the demangler had no `w` operator and reported it invalid ("unsupported operator
@@ -1890,6 +1899,11 @@ Owner: open · Status: in progress
       "lazy cache variable for type metadata for RealityKit.__RKEntityTriggerSpecification" where
       `swift-demangle` prints `type metadata singleton initialization cache for …`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-singleton-cache
+- [x] Swift one-time initialization symbols name the variable. `WZ` and `Wz` were invalid; they now
+      read "one-time initialization function for" and "one-time initialization token for" followed
+      by the variable's name, as `swift-demangle` prints them. For example
+      `_$s10ACPToolLib11RemoveTokenV13configuration_WZ` reads "one-time initialization function for configuration".
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-once-init
 - [x] Require a complete Cargo package version before a registry or vendor path becomes Rust dependency evidence.
       — claimed: Afloat16, branch bugfix/r3.12-rust-dependency-versions
 - [x] Swift symbols name the right generic parameter in an associated type. `Qy` numbers its
@@ -1897,6 +1911,12 @@ Owner: open · Status: in progress
       demangler read `Qy_` as `A`, so `Swift.Zip2Sequence.Iterator.next()` returned
       `(A.Element, A.Element)?` where the symbol says `(A.Element, B.Element)?`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-associated-type-index
+- [x] Swift metadata symbols name their kind the way `swift-demangle` does. `MN` reads as
+      noncanonical specialized generic type metadata (`_$sSRys6UInt16VGMN`), `Mj` as an opaque
+      type descriptor accessor key and `Mz` as a flag for loading canonical specialized generic
+      type metadata. The demangler printed `type metadata for`, `module descriptor` and `type
+      metadata heap reference for` for them.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-metadata-names
 - [x] Decode binary plist markers and dictionary keys according to their stored types.
       — claimed: Afloat16, branch bugfix/r3.12-bplist-typed-objects
 - [x] Swift initialisers of structs, enums, protocols and extensions read `init`. The demangler
@@ -1991,6 +2011,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-wasm-function-count
 - [x] Reject TypeSpec handles where CLI class/value-type and generic signatures require TypeDef or TypeRef, while retaining standalone TypeSpec and custom-modifier decoding.
       — claimed: Afloat16, branch bugfix/r3.12-dotnet-signature-type-handles-20261110
+- [x] Recognize volatile type notation from required `System.Runtime.CompilerServices.IsVolatile` modifiers across the complete modifier list.
+      — claimed: Afloat16, branch bugfix/r3.12-dotnet-volatile-modifiers-20261110
 - [x] Preserve complete Unicode characters in shortened .NET strings.
       — claimed: Afloat16, branch bugfix/r3.12-dotnet-user-string-surrogate-limit-20261105
 - [x] Validate CIL method exception-section kinds, extents and complete clause records before reading exception handlers.
@@ -2032,6 +2054,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-cramfs-hole-blocks-20261110
 - [x] Bound filesystem and archive recovery by the recorded image, node, directory and member limits.
       — claimed: Afloat16, branch bugfix/r3.12-filesystem-archive-bounds
+- [x] Recover files and symlinks from cramfs blocks marked uncompressed while preserving mixed compressed runs and recovery limits.
+      — claimed: Afloat16, branch bugfix/r3.12-cramfs-uncompressed-blocks-20261110
 - [x] Use ordered visited-node membership in ROMFS, ext, SquashFS and JFFS2 directory walks so wide filesystem trees avoid repeated scans of every previously visited node.
       — claimed: Afloat16, branch bugfix/r3.12-filesystem-page-visits-20261110
 - [x] Read big-endian cramfs inode fields and block pointers so files and links recover like little-endian images.
@@ -2043,6 +2067,7 @@ Owner: open · Status: in progress
       The [unchanged-code baseline](https://github.com/Afloat16/claude-mem/actions/runs/42636776430/job/129226895582) reproduces the new regression cases.
 - [x] Exercise signed PAX lengths, empty keys and equals signs inside a path value.
       — claimed: Afloat16, branch bugfix/r3.12-pax-record-framing
+- [x] Apply global PAX archive attributes to later members, honor local overrides and global deletions, and bound inherited name copies before extraction.
 - [x] Bound and cancel CRC cpio verification across firmware probes, and reject non-hex checksum
       fields — claimed: Afloat16, branch bugfix/r3.12-bound-cpio-crc-scans-20261103
 - [x] More parsers keep to the bytes they declare and refuse impossible values: signed LEB128 past
@@ -2168,6 +2193,11 @@ Owner: open · Status: in progress
       operator, so every addressor was reported invalid: `_$s5Books19PAGETURNLOG_ENABLEDSbvau` is
       `Books.PAGETURNLOG_ENABLED.unsafeMutableAddressor : Swift.Bool`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-addressors
+- [x] Swift outlined variables decode. `Tv` with an optional index names the outlined variable of the
+      symbol before it (a function, a protocol witness, or a global), but the demangler reported every
+      one as an unsupported thunk, so `_$s013CompilerSwiftA21PluginMessageHandling0C7FeatureO8rawValueACSgSS_tcfCTv_`
+      is `outlined variable #0 of CompilerSwiftCompilerPluginMessageHandling.PluginFeature.init(rawValue: Swift.String) -> CompilerSwiftCompilerPluginMessageHandling.PluginFeature?`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-outlined-variable
 - [x] Swift async thunks decode. `Tu` is the async function pointer of the function before it, and
       `TY` and `TQ` with an index are its suspend and await resume functions, but the demangler
       reported all three as an unsupported thunk, so `_$s10XCTestCore5QueueC11synchronizeyyYaFTY0_`
@@ -2179,6 +2209,12 @@ Owner: open · Status: in progress
       `Foundation.Data.InlineData.subscript(Swift.Int) -> Swift.UInt8.modify` where `swift-demangle`
       prints `Foundation.Data.InlineData.subscript.modify : (Swift.Int) -> Swift.UInt8`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-subscript-accessors
+- [x] Swift key path accessors decode. The getter and setter of a key path (`TK` and `Tk`) after a
+      property descriptor and the type the path starts from were reported as an unsupported thunk, so
+      `_$s10DVTIconKit18GeneratedIconImageC14drawingContextAA0cd7DrawingG0CSgvpACTk` is
+      `key path setter for DVTIconKit.GeneratedIconImage.drawingContext : DVTIconKit.GeneratedIconDrawingContext? : DVTIconKit.GeneratedIconImage`
+      in `swift-demangle`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-keypath-thunks
 - [x] Swift reflection, metadata-cache and Objective-C class symbols decode. The demangler stopped
       at `M` followed by `K`, `D`, `F`, `A`, `P`, `B`, `U`, `t` or `s` and reported the symbol
       invalid ("unsupported metadata kind"); about 206,000 symbols in macOS 15.7 and Xcode 26 system

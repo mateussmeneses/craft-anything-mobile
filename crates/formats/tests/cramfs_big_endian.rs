@@ -43,6 +43,29 @@ fn big_endian_files_and_nested_names_match_little_endian() {
 }
 
 #[test]
+fn uncompressed_flags_are_decoded_after_the_pointer_byte_order() {
+    let contents = [b'R'; 4113];
+    let mut little = craft_anything_testkit::firmware::cramfs_image();
+    little.resize(little.len().div_ceil(4) * 4, 0);
+    let pointers = little.len();
+    little.resize(pointers + 8, 0);
+    for (index, block) in contents.chunks(4096).enumerate() {
+        little.extend_from_slice(block);
+        let end = little.len() as u32 | 0x8000_0000;
+        little[pointers + index * 4..pointers + index * 4 + 4].copy_from_slice(&end.to_le_bytes());
+    }
+    let end = little.len() as u32;
+    little[4..8].copy_from_slice(&end.to_le_bytes());
+    little[8..12].copy_from_slice(&0x800u32.to_le_bytes());
+    little[80..84].copy_from_slice(&(contents.len() as u32).to_le_bytes());
+    little[84..88].copy_from_slice(&(((pointers as u32 / 4) << 6) | 3).to_le_bytes());
+    let expected = fsread::cramfs::read(&little, &Limits::default());
+    assert!(expected.complete, "{:?}", expected.warnings);
+    assert_eq!(expected.entries.iter().find(|entry| entry.path == "hello.txt").unwrap().data.as_deref(), Some(contents.as_slice()));
+    assert_eq!(fsread::cramfs::read(&big_endian(&little), &Limits::default()), expected);
+}
+
+#[test]
 fn owner_bits_do_not_change_big_endian_modes_or_sizes() {
     let mut little = craft_anything_testkit::firmware::cramfs_image();
     for inode in [64, 76, 100, 116] {

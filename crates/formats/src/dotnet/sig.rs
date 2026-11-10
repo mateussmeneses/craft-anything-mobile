@@ -275,16 +275,14 @@ impl<'m, 'a> Names<'m, 'a> {
         Some(self.type_name(table, v >> 2, g, depth))
     }
 
-    fn skip_mods(&self, c: &mut Cur<'_>, g: &GenCtx<'_>, depth: u32) -> Option<Vec<String>> {
-        let mut mods = Vec::new();
+    fn skip_mods(&self, c: &mut Cur<'_>, g: &GenCtx<'_>, depth: u32) -> Option<bool> {
+        let mut is_volatile = false;
         while matches!(c.peek(), Some(0x1f | 0x20)) {
             let req = c.u8()? == 0x1f;
             let m = self.tdor_encoded(c, g, depth, true)?;
-            if mods.len() < 8 {
-                mods.push(format!("{}({m})", if req { "modreq" } else { "modopt" }));
-            }
+            is_volatile |= req && m == "System.Runtime.CompilerServices.IsVolatile";
         }
-        Some(mods)
+        Some(is_volatile)
     }
 
     /// One type from a signature.
@@ -292,7 +290,7 @@ impl<'m, 'a> Names<'m, 'a> {
         if depth > MAX_DEPTH {
             return None;
         }
-        let mods = self.skip_mods(c, g, depth)?;
+        let is_volatile = self.skip_mods(c, g, depth)?;
         let b = c.u8()?;
         let s = match b {
             0x01 => "void".into(),
@@ -382,7 +380,7 @@ impl<'m, 'a> Names<'m, 'a> {
             0x45 => format!("pinned {}", self.ty(c, g, depth + 1)?),
             _ => return None,
         };
-        Some(if mods.iter().any(|m| m.contains("IsVolatile")) { format!("volatile {s}") } else { s })
+        Some(if is_volatile { format!("volatile {s}") } else { s })
     }
 
     fn method_sig_inner(&self, c: &mut Cur<'_>, g: &GenCtx<'_>, depth: u32) -> Option<MethodSig> {

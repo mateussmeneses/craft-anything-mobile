@@ -1,13 +1,15 @@
 //! cramfs (`Compressed ROMFS`, magic `0x28cd3d45`): a compressed read-only filesystem in either
 //! byte order. Inodes are 12 bytes; a
 //! directory's children sit consecutively in its data span; a regular file's data is a run of
-//! 4 KiB blocks, stored as zlib streams or zero-filled holes, preceded by end-offset pointers. Bounded against cycles,
-//! huge sizes and corrupt offsets.
+//! 4 KiB blocks, stored as zlib streams, uncompressed bytes or zero-filled holes, preceded by
+//! end-offset pointers. Bounded against cycles, huge sizes and corrupt offsets.
 
 use super::{FsEntry, FsImage, FsKind, Limits, join};
 use crate::bytes::Reader;
 
 const BLK: usize = 4096;
+const UNCOMPRESSED: u32 = 0x8000_0000;
+const DIRECT_PTR: u32 = 0x4000_0000;
 
 struct Inode {
     mode: u16,
@@ -102,7 +104,7 @@ fn walk(data: &[u8], dir: &Inode, parent: &str, limits: &Limits, img: &mut FsIma
     }
 }
 
-/// Decompress a regular file's (or symlink's) zlib block run.
+/// Recover a regular file's (or symlink's) block run.
 fn file_data(data: &[u8], ino: &Inode, limits: &Limits, img: &mut FsImage, big_endian: bool) -> Option<Vec<u8>> {
     if ino.size == 0 {
         return Some(Vec::new());
@@ -117,8 +119,14 @@ fn file_data(data: &[u8], ino: &Inode, limits: &Limits, img: &mut FsImage, big_e
     let mut out = Vec::with_capacity(ino.size);
     let mut block_start = ino.offset.checked_add(nblocks.checked_mul(4)?)?;
     for i in 0..nblocks {
-        let pointer = ino.offset.checked_add(i.checked_mul(4)?)?;
-        let end = if big_endian { r.u32_be(pointer) } else { r.u32_le(pointer) }? as usize;
+        let pointer_offset = ino.offset.checked_add(i.checked_mul(4)?)?;
+        let pointer = if big_endian { r.u32_be(pointer_offset) } else { r.u32_le(pointer_offset) }?;
+        if pointer & DIRECT_PTR != 0 {
+            img.warn("cramfs direct block pointers are not supported");
+            img.complete = false;
+            return None;
+        }
+        let end = (pointer & !UNCOMPRESSED) as usize;
         if end < block_start || end > data.len() {
             img.warn("corrupt cramfs block pointer");
             img.complete = false;
@@ -129,8 +137,18 @@ fn file_data(data: &[u8], ino: &Inode, limits: &Limits, img: &mut FsImage, big_e
             out.resize(out.len().checked_add(expected)?, 0);
             continue;
         }
-        let comp = data.get(block_start..end)?;
-        match crate::firmware::inflate(comp, true, BLK as u64, true) {
+        let block = data.get(block_start..end)?;
+        if pointer & UNCOMPRESSED != 0 {
+            if block.len() != expected {
+                img.warn("cramfs uncompressed block does not match the file size");
+                img.complete = false;
+                return None;
+            }
+            out.extend_from_slice(block);
+            block_start = end;
+            continue;
+        }
+        match crate::firmware::inflate(block, true, BLK as u64, true) {
             Ok(inf) => {
                 if inf.produced != expected as u64 {
                     img.warn("cramfs block output does not match the file size");
