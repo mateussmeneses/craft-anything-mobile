@@ -97,6 +97,12 @@ Fixed:
   with `count` 200 returned 270 lines: logcat counts entries, and an entry can span lines.
   **Unverified**: `adb_app_install`, `adb_app_remove`, `adb_bugreport_save`, and every tool on a
   physical phone.
+- Tap, type and swipe (`adb_input_send`): **New**. Run on the emulator above: a tap on Settings'
+  search box, then "wi fi" typed (the field then held exactly that, space included); back and
+  home keys; Add network opened, a name typed, the security list opened and an entry picked, a
+  password typed and "Show password" tapped, each step's result read with `adb_ui_show`. Without
+  consent it was refused. A swipe and a long press were sent and taken. Not checked: what a swipe
+  or long press did on screen, a step the device refuses, a physical phone.
 - Controls on the screen (`adb_ui_show`): **New**. Run on the emulator above against Android 17's
   Settings: 78 controls, 13 interactive; `interactive_only` with `text_contains` "network" returned
   the one row a tap opens, labelled from its two texts, with the row's bounds. Before labels the
