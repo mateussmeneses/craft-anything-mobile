@@ -1994,6 +1994,7 @@ Owner: open · Status: todo
       another way in (a clipboard paste or an input method we control)
 - [ ] `adb_walkthrough_record`: a named sequence of steps with a picture and a control tree after
       each, saved so a check can replay it
+      — claimed: mateussmeneses, branch feature/r6.3-walkthrough
 - [ ] App state: current activity, back stack, permissions granted
 - [x] Verify the unverified adb tools on the emulator (shared with R5.7): 20 ran on Android 17
       (API 37, x86_64); see tool-status.md
