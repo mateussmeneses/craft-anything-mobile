@@ -36,6 +36,8 @@ pub mod android_tools;
 pub mod java_tools;
 // A connected Android phone or emulator over adb, plus managed engine installs.
 pub mod adb_tools;
+// The Android SDK and its virtual devices, read from folders.
+pub mod android_sdk_tools;
 // Frida instrumentation driven through the Frida CLI.
 pub mod frida_tools;
 // Target-free formats: Go, WebAssembly, EVM.
@@ -143,6 +145,7 @@ pub fn all() -> Vec<crate::ToolSpec> {
     v.extend(android_tools::specs());
     v.extend(java_tools::specs());
     v.extend(adb_tools::specs());
+    v.extend(android_sdk_tools::specs());
     v.extend(frida_tools::specs());
     v.extend(format_tools::specs());
     v.extend(database_tools::specs());

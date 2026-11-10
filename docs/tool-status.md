@@ -86,5 +86,10 @@ Fixed:
   253 source files, exit 0. `org.apache.commons.io.FileUtils` came back at 1,350 lines, and the
   class and its file-reading methods are present. Not checked: Windows, macOS, a `.class` input,
   or a second JAR.
+- Android SDK check (`engines_android_sdk_check`): **New**. Run on Windows 11 against a real SDK
+  found through the adb on PATH: 4 build tools, 4 platforms, 2 NDKs, command-line tools, emulator,
+  one system image and one virtual device, each matching the folders and `config.ini` on disk.
+  Not checked: macOS, Linux, an SDK with no `source.properties`, or a device made on another
+  computer (covered by fixtures only).
 - Also: Java (.class/JAR) tools, Solana sBPF, SQLite, investigation memory, the report tool,
   website open/capture, and the rebuild workflow.

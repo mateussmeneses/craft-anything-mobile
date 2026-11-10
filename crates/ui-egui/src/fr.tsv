@@ -986,6 +986,7 @@ An Android app package: the file you install on a phone.	Un paquet d'application
 An Apple settings file (plist)	Un fichier de réglages Apple (plist)
 Analyse a JavaScript app	Analyser une application JavaScript
 Analyse a page's JavaScript	Analyser le JavaScript d'une page
+Android SDK on this computer	SDK Android sur cet ordinateur
 Android app code (DEX)	Code d'application Android (DEX)
 Android app components	Composants d'une application Android
 Android app package	Paquet d'application Android

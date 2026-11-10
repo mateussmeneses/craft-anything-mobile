@@ -1958,7 +1958,7 @@ device or emulator is recorded as unverified in `tool-status.md`.
 
 ### R6.1 Android environment
 Owner: open · Status: in progress
-- [ ] `engines_android_sdk_check`: find the Android SDK (a given folder, the configured adb's own
+- [x] `engines_android_sdk_check`: find the Android SDK (a given folder, the configured adb's own
       SDK, `ANDROID_HOME`/`ANDROID_SDK_ROOT`, the usual install folder) and report platform tools,
       build tools, platforms, NDKs, command-line tools, emulator, system images and the virtual
       devices with their screen, density, ABI and memory, read from folders only
