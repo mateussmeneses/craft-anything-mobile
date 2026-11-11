@@ -2,11 +2,13 @@
 # Launch recipes match a project file and pass argv directly, never through a shell.
 # {file} is replaced with the matched file; wildcard launch matches must be unique.
 
-# A Flutter project builds an Android debug APK (build/app/outputs/flutter-apk/app-debug.apk).
+# A Flutter project builds an Android profile APK (build/app/outputs/flutter-apk/app-profile.apk):
+# compiled ahead of time like a release, signed with the debug key. A debug (JIT) build ignored
+# taps on an Android 17 emulator, so a check that taps it would judge the wrong thing.
 [[toolchain]]
 name = "Flutter"
 found_by = ["pubspec.yaml"]
-build = ["flutter", "build", "apk", "--debug"]
+build = ["flutter", "build", "apk", "--profile"]
 test = ["flutter", "test"]
 windows_program = "flutter.bat"
 

@@ -27,7 +27,7 @@
 name = "Flutter"
 asked_by = [" in flutter ", " with flutter ", " using flutter ", " use flutter "]
 found_by = ["pubspec.yaml"]
-steps = "Use Flutter with Dart. Create the project directly in app/ (pubspec.yaml, lib/main.dart and the android/ folder `flutter create` makes, with a package name of your own), then run `flutter build apk --debug` from app/ until it succeeds; the APK lands in app/build/app/outputs/flutter-apk/."
+steps = "Use Flutter with Dart. Create the project directly in app/ (pubspec.yaml, lib/main.dart and the android/ folder `flutter create` makes, with a package name of your own), then run `flutter build apk --profile` from app/ until it succeeds; the APK lands in app/build/app/outputs/flutter-apk/app-profile.apk (a debug build doesn't answer taps on an emulator, so it can't be checked)."
 
 [[stack]]
 name = "React Native"

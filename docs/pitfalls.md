@@ -953,6 +953,12 @@ such facts on the tool itself (`Effects::CARRIES_TARGET_CONTENT`), compare `Regi
 ids (which cover old ids and `mcp__…__` names) instead of raw names, and keep tool ids that other
 code depends on in one constant next to the tool.
 
+**A debug build that ignores the taps a check sends.** A Flutter debug (JIT) APK drew its first
+screen on an Android 17 emulator but never answered `input tap`, while the same app built for
+release counted every tap; a walk recorded on it showed nothing happening. Checks that act on an
+app build it ahead of time (Flutter `--profile`), and a walk is looked at (the counter moved)
+before it is trusted as the original's.
+
 **A built-in table that empties itself on a typo.** A scripted edit put unescaped quotes in a
 `stacks.toml` string; the table is read with `unwrap_or_default()`, so every stack vanished with no
 error, and only unrelated tests (Godot no longer found) showed it. Edit a TOML string with the

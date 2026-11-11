@@ -111,8 +111,8 @@ const MAX_ENTRIES: usize = 50_000;
 /// How long the app is given after it starts before the screen is read.
 const SETTLE: Duration = Duration::from_secs(6);
 
-/// The newest debug APK a build left under `app` (`…/build/outputs/…/debug/*.apk` or Flutter's
-/// `flutter-apk/app-debug.apk`), searched without following links and with limits.
+/// The newest debug APK a build left under `app` (`…/build/outputs/…/debug/*.apk`, or Flutter's
+/// `flutter-apk/app-debug.apk` or `app-profile.apk`), searched without following links and with limits.
 pub fn find_debug_apk(app: &Path) -> Option<PathBuf> {
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
     let mut stack = vec![(app.to_path_buf(), 0usize)];
@@ -131,7 +131,8 @@ pub fn find_debug_apk(app: &Path) -> Option<PathBuf> {
                 stack.push((path, depth + 1));
             } else if kind.is_file() && name.ends_with(".apk") {
                 let p = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
-                let debug = p.contains("/outputs/") && (p.contains("/debug/") || name.contains("debug"));
+                let debug =
+                    p.contains("/outputs/") && (p.contains("/debug/") || name.contains("debug") || (p.contains("/flutter-apk/") && name == "app-profile.apk"));
                 if debug {
                     let at = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
                     if best.as_ref().is_none_or(|(t, _)| at > *t) {
