@@ -2384,9 +2384,14 @@ Owner: maintainers · Status: in progress
       installed, started, and still on screen 6 s later
 
 ### R6.5 Comparing an Android build with the original
-Owner: open · Status: todo
-- [ ] A screen check: the same walkthrough on both apps, pictures compared, control trees compared
-      by role, text and bounds, each difference said as something to fix
+Owner: open · Status: in progress
+- [x] A screen check: the same walkthrough on both apps, pictures compared, control trees compared
+      by role, text and bounds, each difference said as something to fix (`ScreenCheck`, with
+      `adb_walkthrough_replay` `other_app`: controls by kind and label, a screen's likeness is the
+      share of screens with the same controls; bounds are not compared yet)
+- [ ] Record the original's walk during the study (today it must be put in
+      capture/android-walkthrough/ with adb_walkthrough_record), and compare bounds
+- [ ] Run `ScreenCheck` live on a rebuild and its original
 - [ ] The same check on more than one device profile
 - [ ] Network calls compared in a test environment the person owns (stand-in backend, R3.11)
 

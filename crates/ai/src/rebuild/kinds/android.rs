@@ -85,6 +85,9 @@ impl TargetKind for AndroidKind {
             return s;
         }
         s.push(ANDROID_BRIEF.to_string());
+        if cx.ws.capture_dir().join(ORIGINAL_WALK).join("walkthrough.json").is_file() {
+            s.push(format!("A walk through the original was recorded in capture/{ORIGINAL_WALK}/: walkthrough.json lists its steps (taps, typing, keys), and step-NN.png and step-NN.json are each screen and its controls. After each build Craft Anything goes through the same steps on yours, from its first screen, and compares each screen's controls (by kind and label) with the original's, so lay your screens out so the same taps reach the same places."));
+        }
         if cx.deep && matches!(&cx.ws.manifest.target, TargetRef::Local { path } if is_package(&path.to_string_lossy())) {
             s.push(STUDY_PACKAGE.to_string());
         }
@@ -97,7 +100,7 @@ impl TargetKind for AndroidKind {
     }
 
     fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
-        vec![Box::new(BuildCheck), Box::new(InstallCheck)]
+        vec![Box::new(BuildCheck), Box::new(InstallCheck), Box::new(ScreenCheck)]
     }
 }
 
@@ -166,6 +169,131 @@ fn crash_lines(log: &Value, package: &str) -> Vec<String> {
     let process = lines.iter().rposition(|l| l.contains("Process: ") && l.contains(package));
     let start = process.map(|p| lines.iter().take(p + 1).rposition(|l| l.contains("FATAL EXCEPTION")).unwrap_or(p));
     start.map(|s| lines.iter().skip(s).take(40).map(|l| l.to_string()).collect()).unwrap_or_default()
+}
+
+/// Where a walkthrough recorded on the original is kept for the screen check (capture/).
+pub const ORIGINAL_WALK: &str = "android-walkthrough";
+
+/// The share of captures that came out like the original's, in percent.
+fn likeness(changes: &[Value]) -> f64 {
+    let compared: Vec<&Value> = changes.iter().filter(|c| c.get("original").and_then(Value::as_bool) == Some(true)).collect();
+    if compared.is_empty() {
+        return 0.0;
+    }
+    let alike = compared.iter().filter(|c| c.get("changed").and_then(Value::as_bool) == Some(false)).count();
+    (alike as f64) * 100.0 / (compared.len() as f64)
+}
+
+/// One sentence per capture that differs: what to fix.
+fn differences(changes: &[Value]) -> Vec<String> {
+    changes
+        .iter()
+        .filter(|c| c.get("changed").and_then(Value::as_bool) == Some(true))
+        .take(20)
+        .map(|c| {
+            let i = c.get("index").and_then(Value::as_u64).unwrap_or(0);
+            let list = |k: &str| {
+                c.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).take(8).collect::<Vec<_>>().join(", ")).unwrap_or_default()
+            };
+            if c.get("original").and_then(Value::as_bool) != Some(true) {
+                format!("Screen {i}: the original's walk has no screen here (the rebuild went further or elsewhere).")
+            } else if c.get("controls_compared").and_then(Value::as_bool) != Some(true) {
+                format!("Screen {i}: its controls couldn't be read on one side.")
+            } else {
+                let (missing, extra) = (list("removed"), list("added"));
+                let mut s = format!("Screen {i}:");
+                if !missing.is_empty() {
+                    s.push_str(&format!(" missing {missing}."));
+                }
+                if !extra.is_empty() {
+                    s.push_str(&format!(" not in the original: {extra}."));
+                }
+                s
+            }
+        })
+        .collect()
+}
+
+/// The rebuild goes through the same walk as the original and its screens are compared: the
+/// controls a person can act on (by kind and label) on each screen, and the pictures. Runs only
+/// when a walk recorded on the original is in capture/android-walkthrough/.
+pub struct ScreenCheck;
+
+impl ScreenCheck {
+    pub const ID: &'static str = "android-screens";
+}
+
+impl Check for ScreenCheck {
+    fn id(&self) -> &'static str {
+        Self::ID
+    }
+
+    fn applies(&self, cx: &CheckCx) -> bool {
+        cx.ws.capture_dir().join(ORIGINAL_WALK).join("walkthrough.json").is_file()
+    }
+
+    fn can_refine(&self, result: &CheckResult) -> bool {
+        result.unknowns.is_empty()
+    }
+
+    fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
+        let (id, round) = (self.id(), cx.round);
+        let unknown = |note: String| {
+            let mut r = CheckResult::new(id, round, false, note.clone());
+            r.unknowns.push(note);
+            r
+        };
+        let Some(apk) = find_debug_apk(&cx.ws.app_dir()) else {
+            return Ok(unknown("The screens weren't compared: no debug APK was built.".into()));
+        };
+        let Some(package) = std::fs::read(&apk).ok().and_then(|b| apk_package(&b)) else {
+            return Ok(unknown("The screens weren't compared: the built APK names no package.".into()));
+        };
+        let devices = cx.call("adb_devices_find", json!({})).map(|o| o.to_json().get("result").cloned().unwrap_or(Value::Null));
+        let Some(serial) = devices.ok().as_ref().and_then(first_online) else {
+            return Ok(unknown("The screens weren't compared: no device is connected.".into()));
+        };
+        // Start the rebuild from its first screen, as the original's walk did.
+        let _ = cx.call("adb_app_force_stop", json!({"serial": serial, "package": package}));
+        if let Err(e) = cx.call("adb_app_launch", json!({"serial": serial, "package": package})) {
+            return Ok(CheckResult::new(id, round, false, format!("{package} didn't start for the screen check: {}", e.message)));
+        }
+        let until = Instant::now() + SETTLE;
+        while Instant::now() < until {
+            cx.stop().check()?;
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        let out = cx.ws.checks_dir().join(format!("round-{round}")).join("screens");
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| ToolError::io(parent.display(), e))?;
+        }
+        let walk = cx.ws.capture_dir().join(ORIGINAL_WALK);
+        let params = json!({"serial": serial, "walkthrough": walk.display().to_string(), "output_directory": out.display().to_string(), "other_app": true});
+        let replay = match cx.call("adb_walkthrough_replay", params) {
+            Ok(o) => o.to_json().get("result").cloned().unwrap_or(Value::Null),
+            // A walk that kept typed text out can't be repeated without it.
+            Err(e) => return Ok(unknown(format!("The recorded walk couldn't be replayed on the rebuild: {}", e.message))),
+        };
+        let changes: Vec<Value> = replay.get("changes").and_then(Value::as_array).cloned().unwrap_or_default();
+        let similarity = likeness(&changes);
+        let diffs = differences(&changes);
+        let note = if diffs.is_empty() {
+            format!("The rebuild went through the original's walk with the same controls on all {} screen(s).", changes.len())
+        } else {
+            format!(
+                "The rebuild went through the original's walk; {} of {} screen(s) differ. Fix these so each screen has the same controls as the original's (pictures are in checks/round-{round}/screens/ and capture/{ORIGINAL_WALK}/):\n{}",
+                diffs.len(),
+                changes.len(),
+                diffs.join("\n")
+            )
+        };
+        let mut r = CheckResult::new(id, round, true, note);
+        r.similarity = Some(similarity);
+        if replay.get("complete").and_then(Value::as_bool) == Some(false) {
+            r.unknowns.push("The walk stopped early on the rebuild, so later screens weren't compared.".into());
+        }
+        Ok(r)
+    }
 }
 
 /// The first virtual device `adb_emulators_list` names, from its result.
@@ -354,6 +482,21 @@ mod tests {
         assert_eq!(t.len(), 3);
         assert!(t[2].contains("IllegalStateException"));
         assert!(crash_lines(&json!({"lines": ["fine"]}), "com.me.notes").is_empty());
+    }
+
+    #[test]
+    fn screen_differences_are_said_as_things_to_fix() {
+        let changes = vec![
+            json!({"index": 0, "original": true, "changed": false}),
+            json!({"index": 1, "original": true, "changed": true, "controls_compared": true, "removed": ["Button \"Save\""], "added": ["Button \"OK\""]}),
+            json!({"index": 2, "original": false, "changed": true}),
+        ];
+        assert!((likeness(&changes) - 50.0).abs() < 1e-9);
+        let d = differences(&changes);
+        assert_eq!(d.len(), 2);
+        assert!(d[0].contains("missing Button \"Save\"") && d[0].contains("not in the original: Button \"OK\""), "{}", d[0]);
+        assert!(d[1].contains("no screen here"));
+        assert_eq!(likeness(&[]), 0.0);
     }
 
     #[test]

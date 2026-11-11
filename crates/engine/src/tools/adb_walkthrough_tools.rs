@@ -64,7 +64,7 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             REPLAY_TOOL,
             "Replay a walkthrough",
-            "Run a walkthrough saved by adb_walkthrough_record again, on the same app, a rebuild of it or another device, saving new captures the same way, and say for each capture what changed from the recording: the app on screen, and the controls a person can act on that were added or removed (by class, id and label; at most 20 named each way), and whether the picture is byte for byte the same. walkthrough is the saved walkthrough.json (or its folder); texts it kept out are given in secrets, in the order they're typed, and are kept out of the new file too. output_directory must be absolute and must not exist yet. Changes the device.",
+            "Run a walkthrough saved by adb_walkthrough_record again, on the same app, a rebuild of it or another device, saving new captures the same way, and say for each capture what changed from the recording: the app on screen, and the controls a person can act on that were added or removed (by class, id and label; at most 20 named each way), and whether the picture is byte for byte the same. walkthrough is the saved walkthrough.json (or its folder); texts it kept out are given in secrets, in the order they're typed, and are kept out of the new file too. other_app replays it on another app (a rebuild of the recorded one): the app's name is not compared and controls are matched by kind and label only. output_directory must be absolute and must not exist yet. Changes the device.",
             "Do a recorded walk through an app again and see which screens came out different.",
             Toolset::Adb,
             Effects::MUTATES_SESSION
@@ -339,6 +339,10 @@ struct ReplayParams {
     /// How long the screen is given after each step, in milliseconds (default: the recording's).
     #[serde(default)]
     settle_ms: Option<u32>,
+    /// The replay runs on another app (a rebuild of the recorded one): the app's name isn't
+    /// compared, and controls are matched by kind and label, not by their ids.
+    #[serde(default)]
+    other_app: bool,
 }
 
 /// Largest walkthrough.json or controls file read back.
@@ -395,7 +399,7 @@ fn saved_steps(doc: &Value, secrets: &[String]) -> Result<(Vec<Step>, Vec<bool>,
 }
 
 /// The controls a person can act on in a saved controls file, each as class, id and label.
-fn control_names(tree: &Value) -> std::collections::BTreeSet<String> {
+fn control_names(tree: &Value, with_ids: bool) -> std::collections::BTreeSet<String> {
     let flag = |n: &Value, k: &str| n.get(k).and_then(Value::as_bool).unwrap_or(false);
     let text = |n: &Value, k: &str| n.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
     tree.get("nodes")
@@ -407,7 +411,7 @@ fn control_names(tree: &Value) -> std::collections::BTreeSet<String> {
                 .map(|n| {
                     let class = text(n, "class");
                     let short = class.rsplit('.').next().unwrap_or_default().to_string();
-                    format!("{short} {} \"{}\"", text(n, "resource_id"), text(n, "label"))
+                    if with_ids { format!("{short} {} \"{}\"", text(n, "resource_id"), text(n, "label")) } else { format!("{short} \"{}\"", text(n, "label")) }
                 })
                 .collect()
         })
@@ -423,7 +427,7 @@ fn saved_file(dir: &Path, capture: &Value, key: &str) -> Option<std::path::PathB
 }
 
 /// What changed between a saved capture and the new one.
-fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Value) -> Value {
+fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Value, other_app: bool) -> Value {
     let index = new.get("index").cloned().unwrap_or(Value::Null);
     let Some(old) = old else {
         return json!({"index": index, "original": false, "changed": true});
@@ -438,7 +442,7 @@ fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Va
     };
     let (added, removed, controls_known) = match (tree(old_dir, old), tree(new_dir, new)) {
         (Some(a), Some(b)) => {
-            let (a, b) = (control_names(&a), control_names(&b));
+            let (a, b) = (control_names(&a, !other_app), control_names(&b, !other_app));
             (b.difference(&a).cloned().collect::<Vec<_>>(), a.difference(&b).cloned().collect::<Vec<_>>(), true)
         }
         _ => (vec![], vec![], false),
@@ -453,7 +457,7 @@ fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Va
         _ => Value::Null,
     };
     let picture_changed = picture.get("difference_fraction").and_then(Value::as_f64).map(|f| f > PICTURE_CHANGE);
-    let changed = same_app == Some(false) || !added.is_empty() || !removed.is_empty() || !controls_known;
+    let changed = (same_app == Some(false) && !other_app) || !added.is_empty() || !removed.is_empty() || !controls_known;
     json!({
         "index": index,
         "original": true,
@@ -525,7 +529,7 @@ fn adb_walkthrough_replay(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
 
     let w = walk(ctx, &adb, serial, &dir, &steps, &commands, settle, &kept_out)?;
     let old_captures = doc.get("captures").and_then(Value::as_array).cloned().unwrap_or_default();
-    let changes: Vec<Value> = w.captures.iter().enumerate().map(|(k, c)| compare_capture(&old_dir, old_captures.get(k), &dir, c)).collect();
+    let changes: Vec<Value> = w.captures.iter().enumerate().map(|(k, c)| compare_capture(&old_dir, old_captures.get(k), &dir, c, p.other_app)).collect();
     let mut out = manifest(doc.get("name").and_then(Value::as_str), serial, settle_ms, &w);
     if let Value::Object(m) = &mut out {
         m.insert("replay_of".into(), json!(file));
@@ -687,17 +691,20 @@ mod tests {
         std::fs::write(a.path().join("step-01.png"), b"png").unwrap();
         std::fs::write(b.path().join("step-01.png"), b"png").unwrap();
         let cap = |pkg: &str| json!({"index": 1, "controls": "step-01.json", "screenshot": "step-01.png", "package": pkg});
-        let c = compare_capture(a.path(), Some(&cap("app")), b.path(), &cap("app"));
+        let c = compare_capture(a.path(), Some(&cap("app")), b.path(), &cap("app"), false);
         assert_eq!((c["changed"].as_bool(), c["same_app"].as_bool(), c["picture_identical"].as_bool()), (Some(true), Some(true), Some(true)));
         assert_eq!(c["added"], json!(["Button  \"Help\""]));
         assert_eq!(c["removed"], json!(["Button  \"Cancel\""]));
-        let same = compare_capture(a.path(), Some(&cap("app")), a.path(), &cap("app"));
+        let same = compare_capture(a.path(), Some(&cap("app")), a.path(), &cap("app"), false);
         assert_eq!(same["changed"].as_bool(), Some(false));
-        assert_eq!(compare_capture(a.path(), Some(&cap("app")), a.path(), &cap("other"))["changed"].as_bool(), Some(true));
-        assert_eq!(compare_capture(a.path(), None, b.path(), &cap("app"))["original"].as_bool(), Some(false));
+        assert_eq!(compare_capture(a.path(), Some(&cap("app")), a.path(), &cap("other"), false)["changed"].as_bool(), Some(true));
+        // On a rebuild the app differs by design: only the controls count.
+        assert_eq!(compare_capture(a.path(), Some(&cap("app")), a.path(), &cap("rebuild"), true)["changed"].as_bool(), Some(false));
+        assert_eq!(compare_capture(a.path(), Some(&cap("app")), b.path(), &cap("rebuild"), true)["added"], json!(["Button \"Help\""]));
+        assert_eq!(compare_capture(a.path(), None, b.path(), &cap("app"), false)["original"].as_bool(), Some(false));
         // A name pointing outside the walk's folder is not followed.
         let outside = json!({"index": 1, "controls": "../step-01.json", "package": "app"});
-        assert_eq!(compare_capture(a.path(), Some(&outside), a.path(), &outside)["controls_compared"].as_bool(), Some(false));
+        assert_eq!(compare_capture(a.path(), Some(&outside), a.path(), &outside, false)["controls_compared"].as_bool(), Some(false));
     }
 
     #[test]
