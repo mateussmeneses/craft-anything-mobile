@@ -2371,8 +2371,8 @@ Owner: maintainers · Status: in progress
       APK lands
 - [x] Flutter builds with its own toolchain (`flutter build apk --debug`), React Native through
       its `build` script (`react-native build-android --mode=debug`); .NET MAUI with the .NET one
-- [ ] Build each stack once for real through the build check (only Flutter's command was run by
-      hand here)
+- [ ] Build each stack once for real through the build check (Flutter has, in a live run; the
+      others need Gradle, Node and .NET set up here)
 - [ ] Its launch recipe: install the built APK on the chosen device and start it (Play), which
       needs a device choice a recipe of one command can't carry
 - [x] `InstallCheck`: the built APK installs, starts and stays up; a crash in the log fails it with
@@ -2380,7 +2380,8 @@ Owner: maintainers · Status: in progress
       crash log is read only where Deep mode allows `adb_log_read`)
 - [x] `InstallCheck` starts this computer's first virtual device (no window) when no device is
       connected, and leaves it running
-- [ ] Run `InstallCheck` itself in a live rebuild run. Its steps were run by hand on a real Flutter debug APK on an Android 17 emulator:
+- [x] Run `InstallCheck` itself in a live rebuild run (2026-11-10: a Flutter counter app rebuilt by
+      Claude Code from its APK; built with `--profile`, installed, started and stayed on screen) Its steps were run by hand on a real Flutter debug APK on an Android 17 emulator:
       installed, started, and still on screen 6 s later
 
 ### R6.5 Comparing an Android build with the original
@@ -2391,7 +2392,8 @@ Owner: open · Status: in progress
       share of screens with the same controls; bounds are not compared yet)
 - [ ] Record the original's walk during the study (today it must be put in
       capture/android-walkthrough/ with adb_walkthrough_record), and compare bounds
-- [ ] Run `ScreenCheck` live on a rebuild and its original
+- [x] Run `ScreenCheck` live on a rebuild and its original (the same run, continued with a 3-tap walk
+      recorded on the original: all 4 screens alike, 0 to 3)
 - [ ] The same check on more than one device profile
 - [ ] Network calls compared in a test environment the person owns (stand-in backend, R3.11)
 
