@@ -7,7 +7,7 @@ use craft_anything_engines::assets::{Catalogue, Shape, about_usd};
 pub(super) const RULES: &str = "\
 Rules:
 - Their request comes first. When it says how to build (a language, framework, engine, library or platform), build with exactly that, even where these instructions name something else: the stack given here is only the default for what the request leaves open. Don't switch away from what they asked for to get past a failing build or check; fix the build instead.
-- Change files only inside app/. Everything else in the workspace is read-only evidence.
+- Change files only inside app/. Everything else in the workspace is read-only evidence, and Craft Anything's own records there (craft.json, feed.json, everything in inbox/) stop the build if anything else writes them: keep track of your progress in your checklist, never in a file of your own there.
 - Rebuild the layout, styling and behaviour yourself from the evidence. Don't copy logos, photos, brand names or long passages of text unless the person confirms they own the original or have permission (ask once with core_person_ask if it matters); otherwise use neutral placeholders: simple shapes or gradients for images, short sample copy for text.
 - Use the core_person_ask tool (craft-anything MCP server) only for choices that really change the result. Give 2-4 short choices. Never ask about technical details you can decide yourself.
 - Build what the person asked for. If part of it won't fit this version (for example online co-op, a whole game mode or another platform), ask with core_person_ask before leaving it out, with the smaller version as one of the choices; never drop it silently.

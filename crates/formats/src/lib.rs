@@ -114,12 +114,8 @@ pub fn zip_has_entry(data: &[u8], entry: &str) -> bool {
     false
 }
 
-/// True when bytes look like an Electron ASAR archive: a Chromium pickle header whose JSON
-/// starts with `{"files":`.
-pub fn looks_like_asar(data: &[u8]) -> bool {
-    let r = Reader::new(data);
-    matches!(r.u32_le(0), Some(4)) && data.get(16..25) == Some(b"{\"files\":")
-}
+/// The ASAR reader's own check, so format dispatch and the reader agree on what an ASAR is.
+pub use asar::looks_like_asar;
 
 #[cfg(test)]
 mod tests {
@@ -141,8 +137,6 @@ mod tests {
 
     #[test]
     fn asar_header() {
-        let mut a = vec![4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        a.extend_from_slice(b"{\"files\":{}}");
-        assert!(looks_like_asar(&a));
+        assert!(looks_like_asar(&asar::build(&[("a.js", b"a();")])));
     }
 }

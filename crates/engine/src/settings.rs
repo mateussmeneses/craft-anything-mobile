@@ -4,6 +4,7 @@ use crate::versioned::{Step, upgrade};
 use craft_anything_evidence::{ErrorCode, ToolError};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -361,7 +362,12 @@ impl Settings {
     /// defaults; one that can't be read at all, or can't be set aside, stays where it is, and the
     /// defaults returned refuse to be saved over it ([`Settings::not_loaded`]).
     pub fn load_from(path: &Path) -> Settings {
-        let bytes = match std::fs::read(path) {
+        Settings::from_read(path, std::fs::read(path))
+    }
+
+    /// [`Settings::load_from`] given what reading `path` gave.
+    fn from_read(path: &Path, read: std::io::Result<Vec<u8>>) -> Settings {
+        let bytes = match read {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Settings::default(),
             Err(e) => {
@@ -407,11 +413,24 @@ impl Settings {
 
     /// Load startup settings, first recovering app edits deferred by a busy shutdown.
     pub fn load() -> Settings {
-        let path = Settings::path();
-        if let Err(e) = Self::recover_pending(&path) {
+        Settings::load_waiting(&Settings::path(), &STARTUP_READ_WAITS, &mut |p| std::fs::read(p))
+    }
+
+    /// [`Settings::load`] for `path`. A virus scan or another program may hold config.toml for a
+    /// moment, and the whole session would otherwise run on defaults that refuse every save, so
+    /// it is read again after each of `waits`.
+    fn load_waiting(path: &Path, waits: &[Duration], read_file: &mut dyn FnMut(&Path) -> std::io::Result<Vec<u8>>) -> Settings {
+        let read = read_waiting(path, waits, &mut *read_file);
+        // Still unreadable: deferred edits stay beside it for the next start, as the defaults
+        // standing in for it can't be saved. Merged into a file read now, they'd be lost when the
+        // session's own save at exit discards them.
+        if matches!(&read, Err(e) if e.kind() != std::io::ErrorKind::NotFound) {
+            return Settings::from_read(path, read);
+        }
+        if let Err(e) = Self::recover_pending(path) {
             log::warn!("Couldn't recover pending settings: {}", e.message);
         }
-        Settings::load_from(&path)
+        Settings::from_read(path, read_waiting(path, waits, read_file))
     }
 
     /// Keep pending non-AI edits without touching config.toml or waiting for the engine session.
@@ -516,6 +535,35 @@ impl Settings {
     pub fn engine_not_found(&self, id: &str) -> (String, String) {
         use craft_anything_engines::ToolPathLookup;
         craft_anything_engines::not_found_help(id, self.engines.tools.override_for(id).as_deref(), craft_anything_platform::in_flatpak())
+    }
+}
+
+/// How long startup waits before each new try at a config.toml that couldn't be read: 2 s in all.
+const STARTUP_READ_WAITS: [Duration; 6] = [
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(300),
+    Duration::from_millis(400),
+    Duration::from_millis(500),
+    Duration::from_millis(500),
+];
+
+/// Read `path`, trying again after each wait while it fails in a way that may pass (a lock, a
+/// sharing violation, a denied access), not when it is missing or isn't a file at all.
+fn read_waiting(path: &Path, waits: &[Duration], mut read: impl FnMut(&Path) -> std::io::Result<Vec<u8>>) -> std::io::Result<Vec<u8>> {
+    use std::io::ErrorKind::{InvalidFilename, InvalidInput, IsADirectory, NotADirectory, NotFound};
+    let mut waits = waits.iter();
+    loop {
+        match read(path) {
+            Err(e) if !matches!(e.kind(), NotFound | IsADirectory | NotADirectory | InvalidFilename | InvalidInput) => match waits.next() {
+                Some(wait) => {
+                    log::info!("{} couldn't be read ({e}); trying again in {} ms", path.display(), wait.as_millis());
+                    std::thread::sleep(*wait);
+                }
+                None => return Err(e),
+            },
+            done => return done,
+        }
     }
 }
 
@@ -779,6 +827,103 @@ default = "Claude Code"
         assert_eq!(std::fs::read(&path).unwrap(), original);
         assert!(!path.with_extension("toml.broken").exists());
         assert_eq!(Settings::load_from(&path).language, "de");
+    }
+
+    /// Startup tries a file it couldn't read again, after each wait, and stops at "not found".
+    #[test]
+    fn a_config_that_cant_be_read_is_tried_again() {
+        let path = Path::new("config.toml");
+        let held = || std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let waits = [Duration::ZERO; 3];
+        let mut tries = 0;
+        let read = read_waiting(path, &waits, |_| {
+            tries += 1;
+            if tries < 3 { Err(held()) } else { Ok(b"language = \"de\"".to_vec()) }
+        });
+        assert_eq!((read.unwrap(), tries), (b"language = \"de\"".to_vec(), 3));
+        tries = 0;
+        let read = read_waiting(path, &waits, |_| {
+            tries += 1;
+            Err(held())
+        });
+        assert_eq!((read.unwrap_err().kind(), tries), (std::io::ErrorKind::PermissionDenied, 4));
+        tries = 0;
+        let read = read_waiting(path, &waits, |_| {
+            tries += 1;
+            Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+        });
+        assert_eq!((read.unwrap_err().kind(), tries), (std::io::ErrorKind::NotFound, 1));
+        // Nor is a folder where the file should be.
+        let dir = tempfile::tempdir().unwrap();
+        tries = 0;
+        let read = read_waiting(dir.path(), &waits, |p| {
+            tries += 1;
+            std::fs::read(p)
+        });
+        assert!(read.is_err());
+        if cfg!(unix) {
+            assert_eq!(tries, 1);
+        }
+        assert_eq!(STARTUP_READ_WAITS.iter().sum::<Duration>(), Duration::from_secs(2));
+    }
+
+    /// A file unreadable for a moment at startup is read once it can be, instead of the session
+    /// running on defaults that refuse every save.
+    #[cfg(unix)]
+    #[test]
+    fn a_config_readable_again_within_the_waits_is_loaded() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        Settings { language: "de".into(), first_run_done: true, ..Settings::default() }.save_to(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&path).is_ok() {
+            return; // Run as root: nothing is unreadable.
+        }
+        // Without waits, as before: defaults standing in for it.
+        assert!(Settings::from_read(&path, read_waiting(&path, &[], |p| std::fs::read(p))).not_loaded.is_some());
+        let mut tries = 0;
+        let s = Settings::from_read(
+            &path,
+            read_waiting(&path, &[Duration::ZERO; 3], |p| {
+                tries += 1;
+                if tries == 3 {
+                    std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600)).unwrap();
+                }
+                std::fs::read(p)
+            }),
+        );
+        assert_eq!((s.not_loaded, s.language.as_str(), tries), (None, "de", 3));
+    }
+
+    /// Edits deferred at the last exit are merged only into a file startup could read: while it
+    /// can't, they stay beside it (the session's save at exit would otherwise discard them).
+    #[cfg(unix)]
+    #[test]
+    fn deferred_edits_wait_for_a_config_startup_can_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        Settings { language: "de".into(), first_run_done: true, ..Settings::default() }.save_to(&path).unwrap();
+        Settings { language: "fr".into(), first_run_done: true, ..Settings::default() }.defer_save_to(&path).unwrap();
+        let pending = path.with_extension("pending.toml");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&path).is_ok() {
+            return; // Run as root: nothing is unreadable.
+        }
+        let s = Settings::load_waiting(&path, &[Duration::ZERO; 2], &mut |p| std::fs::read(p));
+        assert!(s.not_loaded.is_some() && s.save_to(&path).is_err());
+        assert!(pending.exists(), "kept for the next start");
+        // Readable on the second try: the edits are merged, not left for an exit save to discard.
+        let mut tries = 0;
+        let s = Settings::load_waiting(&path, &[Duration::ZERO; 2], &mut |p| {
+            tries += 1;
+            if tries == 2 {
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            std::fs::read(p)
+        });
+        assert_eq!((s.not_loaded, s.language.as_str(), pending.exists()), (None, "fr", false));
     }
 
     /// A file that can't be used and can't be set aside (here: every backup name is taken) stays

@@ -182,7 +182,9 @@ fn props_window(props: &Value) -> Option<u64> {
     number(props, &["default_generation_settings", "n_ctx"]).or_else(|| number(props, &["n_ctx"]))
 }
 
-/// llama.cpp's server, asked about the model by name (a router serving several needs it).
+/// llama.cpp's server, asked about the model by name (a router serving several needs it). A
+/// router loads a model a request names unless told not to, and with `--models-max` that can
+/// unload the one in use, so the question says `autoload=false` (a single-model server ignores it).
 struct LlamaCpp;
 
 impl WindowProbe for LlamaCpp {
@@ -190,7 +192,7 @@ impl WindowProbe for LlamaCpp {
         "llama.cpp"
     }
     fn window(&self, server: &Server<'_>, fetch: &dyn Fetch) -> Option<u64> {
-        props_window(&fetch.get(&format!("{}/props?model={}", server.root(), query_text(server.model)))?)
+        props_window(&fetch.get(&format!("{}/props?model={}&autoload=false", server.root(), query_text(server.model)))?)
     }
 }
 
@@ -331,9 +333,11 @@ mod tests {
         assert!(!f.asked.borrow().is_empty() && f.asked.borrow().iter().all(|u| u == "http://h/v1/models"), "{:?}", f.asked.borrow());
     }
 
+    /// Every question to llama.cpp names the model and says not to load it: a router would load
+    /// it otherwise, perhaps unloading the one in use (`Canned` answers only the exact URL).
     #[test]
     fn llama_cpp_props_name_the_model() {
-        let f = Canned::new(&[("http://h:8080/props?model=org%2Fm%3Aq4", json!({"n_ctx": 32768}))]);
+        let f = Canned::new(&[("http://h:8080/props?model=org%2Fm%3Aq4&autoload=false", json!({"n_ctx": 32768}))]);
         assert_eq!(read("http://h:8080/v1", "org/m:q4", &f, true), Some(Window { tokens: 32_768, source: "llama.cpp" }));
     }
 
@@ -358,7 +362,7 @@ mod tests {
     #[test]
     fn an_unbelievable_window_is_ignored() {
         for n in [0_u64, 100, u64::MAX] {
-            let f = Canned::new(&[("http://h/props?model=m", json!({"n_ctx": n}))]);
+            let f = Canned::new(&[("http://h/props?model=m&autoload=false", json!({"n_ctx": n}))]);
             assert_eq!(read("http://h/v1", "m", &f, true), None, "{n}");
         }
     }
@@ -367,7 +371,7 @@ mod tests {
     fn hostile_shapes_read_as_nothing() {
         let f = Canned::new(&[
             ("http://h/v1/models", json!({"data": "nope"})),
-            ("http://h/props?model=m", json!({"n_ctx": "big"})),
+            ("http://h/props?model=m&autoload=false", json!({"n_ctx": "big"})),
             ("http://h/api/ps", json!({"models": [{"name": 5}]})),
             ("http://h/api/v0/models/m", json!([1, 2])),
         ]);

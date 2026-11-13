@@ -322,6 +322,11 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       Seen once in six whole-suite runs on Windows 11: `engines_jeb_check` got a stand-in's answer.
       Give the negative probe an address no other test can take
       — claimed: FuryNocturn, branch test/r5.2-jeb-refused-port
+- [x] CI's Rust moved to 1.100, whose Cargo runs a test binary from
+      `target/<profile>/build/<package>/<hash>/out` instead of `target/<profile>/deps`, so
+      `self_cli_path` no longer found the CLI and the two rebuild tests that start it failed on
+      `main` and every pull request. It now finds the CLI from that folder too
+      — claimed: bflatastic, branch bugfix/r5.2-cli-in-new-build-dir
 
 ### R5.3 A builder that can't make progress stops
 Owner: open · Status: todo
@@ -391,6 +396,12 @@ Every round spends the person's money or quota. One that can't do anything shoul
       capture's `kill()` is portable-pty's, which doesn't wait). Not reproduced: no program here
       outlives its stop — claimed: justinjohn0306, branch
       `bugfix/r5.3-play-stop-bounded`
+- [x] An OpenCode builder wrote its own progress notes (`{"step":"done",…}`) to
+      `inbox/build-progress.json`, so every run after it stopped at "Couldn't read
+      inbox/build-progress.json: unknown field `step`", with no way forward given. Only a build
+      started in the person's own folder is told to leave Craft Anything's records alone: tell every
+      builder, and say in the error that something else wrote the file and how to go on
+      — claimed: youkaicountry, branch bugfix/r5.3-builder-wrote-progress-record
 
 ### R5.4 Local models can build
 Owner: open · Status: todo
@@ -493,6 +504,21 @@ been run live.
       with), so Ollama and LM Studio say it once the model is loaded: asked again after the first
       turn. Keep 24k when the server says nothing, and a budget the person set stays the most
       — claimed: youkaicountry, branch feature/r5.4-read-server-window
+- [x] Each AI's tool list is Auto, Lean or Full. Auto offers every tool when the
+      window is 64k or more and the lean builder list (#417) below that; the memory steps in the
+      system prompt follow the same choice. Today every local builder is lean, whatever its window.
+      `tools` in `[[ai.backends]]`; Auto decides on the conversation's budget
+      (`FULL_TOOLS_BUDGET`, a 64k window less its quarter) after the server is asked, and decides
+      again when a later answer changes it (Ollama says only once loaded); paid services keep every
+      tool. Only builders are trimmed: a chat keeps every tool whatever the setting
+      — claimed: youkaicountry, branch feature/r5.4-builder-tool-list
+- [x] Run a build live with the full list on a large local model (a 262k or 512k window), and note
+      in STATUS which models used the extra Core tools well.
+      A Qwen model with a 512k window: 2 of 3 full-list builds of "a scientific calculator" were
+      Ready, using the brief, handoff and finding tools; the third stopped when the model wrote a
+      call to a tool that doesn't exist as text
+- [ ] Run a build live with the lean list on a small local model, and note the result in STATUS
+- [ ] Each AI's tool list in Settings → AI (beside what Auto works out to) and `ai tools <name>`
 - [x] A builder that can't see pictures (the API loop) is told it can't, then sent to open
       screenshots with Read: the website capture lines and the `--screenshot` and reference-picture
       lines in `brief.rs`, the website check's "Open each pair", the reminder after each round, the
@@ -1053,6 +1079,10 @@ Owner: open · Status: in progress
       manifest) skip the approval policy; `maki acp` takes no tool flags to stop it (0.7.0). Start
       it in `app/` (paths in the prompt relative to that), or ask Maki for a way to make those
       writes ask; part of the approval decision above
+- [ ] OpenCode's own write tool reaches our records too: a builder wrote its progress notes to
+      `inbox/build-progress.json` and stopped the build (R5.3 now names the records in the brief
+      and says how to go on). Stop those writes in OpenCode itself, with its permission settings
+      or by starting it in `app/`, and check it live
 
 **ACP:**
 - [ ] Gemini CLI, opencode, goose via ACP or native adapters; each verified live, then turn ACP on
@@ -1574,9 +1604,10 @@ Gaps found while using the app for real projects.
       — claimed: hichang4u, branch bugfix/r2.9-config-not-loaded
 - [ ] When config.toml wasn't loaded (`Settings::not_loaded`), the app says so only in the log and
       when a save fails: say it at startup where the person is looking, with the file's name
-- [ ] A config.toml that can't be read for a moment at startup (a virus scan or another program
+- [x] A config.toml that can't be read for a moment at startup (a virus scan or another program
       holding it) isn't tried again, so the whole session runs on defaults and refuses every save:
       try the read again for a short while before giving up
+      — claimed: NicolasBohn, branch bugfix/r2.9-config-read-retry
 
 ### R2.10 Pinned builds
 Owner: maintainers · Status: in progress
@@ -2239,13 +2270,14 @@ Owner: open · Status: in progress
 - [x] Keep ELF version definitions, requirements and indices within their declared section byte ranges.
       — claimed: Afloat16, branch bugfix/r3.12-elf-version-section-bounds-20261109
 - [x] Keep PE optional-header reads within the declared header.
+      — claimed: Afloat16, branch bugfix/r3.12-pe-optional-header-framing-20261105
 - [ ] `pe_is_managed` reads data-directory 14 at a fixed offset without checking the declared
       optional-header size, so a PE whose header ends before that directory can be classified as
       managed; bound it as `pe::headers` does.
-- [ ] A valid ASAR header written as `{ "files": ...` (a space) or with another key first is not
+- [x] A valid ASAR header written as `{ "files": ...` (a space) or with another key first is not
       recognized by the format-dispatch `looks_like_asar`, though the ASAR reader accepts it; use
       one predicate.
-      — claimed: Afloat16, branch bugfix/r3.12-pe-optional-header-framing-20261105
+      — claimed: NicolasBohn, branch bugfix/r3.12-one-asar-predicate
 - [x] Bound import descriptor walks by mapped file bytes and report incomplete metadata. Normal imports keep
       following the terminator when their declared size is short or zero; delay-load and bound metadata
       also respect their directory sizes. Preserve the shared retained-text budget.
