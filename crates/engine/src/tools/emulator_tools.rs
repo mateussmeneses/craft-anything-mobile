@@ -16,11 +16,13 @@ use craft_anything_engines::android_sdk;
 use craft_anything_engines::emulator::{self, StartOptions};
 use craft_anything_evidence::{Authority, Confidence, Coverage, Environment, ErrorCode, EvidenceBuilder, Limitation, Location, Subject, ToolError};
 use craft_anything_platform::process::{Cancel, Launch};
+use craft_anything_platform::sync::Mutex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
 
 pub const LIST_TOOL: &str = "adb_emulators_list";
@@ -28,7 +30,7 @@ pub const START_TOOL: &str = "adb_emulator_start";
 pub const STOP_TOOL: &str = "adb_emulator_stop";
 
 /// How long `adb_emulator_start` waits for the device to finish booting unless told otherwise.
-const DEFAULT_WAIT_SECS: u32 = 240;
+pub(crate) const DEFAULT_WAIT_SECS: u32 = 240;
 /// The longest wait it accepts.
 const MAX_WAIT_SECS: u32 = 900;
 /// How often a starting device is asked whether it has booted.
@@ -165,6 +167,37 @@ fn running(adb: &Adb) -> Result<Vec<Running>, ToolError> {
         out.push(Running { serial: d.serial, state: d.state, name, booted });
     }
     Ok(out)
+}
+
+/// The serials of the emulators this session started without a window (and hasn't stopped).
+#[derive(Default)]
+struct HeadlessEmulators(Mutex<HashSet<String>>);
+
+fn headless(ctx: &mut Ctx<'_>) -> Arc<HeadlessEmulators> {
+    match ctx.session.ext.get::<HeadlessEmulators>() {
+        Some(h) => h,
+        None => {
+            let h = Arc::new(HeadlessEmulators::default());
+            ctx.session.ext.insert(h.clone());
+            h
+        }
+    }
+}
+
+/// Whether this session started the emulator running as `serial` without a window.
+pub(crate) fn started_headless(ctx: &mut Ctx<'_>, serial: &str) -> bool {
+    headless(ctx).0.lock().unwrap_or_else(PoisonError::into_inner).contains(serial)
+}
+
+/// What adb and the SDK see now, for choosing a device: every attached device, the virtual device
+/// each running emulator runs, and the virtual devices this computer can start.
+pub(crate) fn seen_now(ctx: &Ctx<'_>) -> Result<crate::android_device::Seen, ToolError> {
+    let adb = quick_adb(ctx).ok_or_else(adb_missing)?;
+    let devices = adb.devices()?;
+    let running_avds = running(&adb)?.into_iter().filter_map(|r| Some((r.serial, r.name?))).collect();
+    let places = places(ctx.session, None, None);
+    let avds = android_sdk::find_avds(&places.avd_homes).map(|a| a.devices.into_iter().filter(|d| d.usable).map(|d| d.name).collect()).unwrap_or_default();
+    Ok(crate::android_device::Seen { devices, running_avds, avds })
 }
 
 /// Whether a device says it finished booting; `None` when it didn't answer.
@@ -339,6 +372,13 @@ pub(crate) fn start_emulator(ctx: &mut Ctx<'_>, name: &str, options: StartOption
         }
     }
 
+    // Kept so Play knows a device it would show was started where nobody can see it.
+    if options.no_window
+        && launched.is_some()
+        && let Some(r) = &seen
+    {
+        headless(ctx).0.lock().unwrap_or_else(PoisonError::into_inner).insert(r.serial.clone());
+    }
     Ok(Started {
         serial: seen.as_ref().map(|r| r.serial.clone()),
         booted: seen.as_ref().is_some_and(|r| r.booted == Some(true)),
@@ -413,7 +453,7 @@ pub(crate) struct Stopped {
 
 /// Shut down the emulator running as `serial` (already validated as an emulator serial) and wait,
 /// up to [`STOP_WAIT`], until adb no longer lists it. Shared by `adb_emulator_stop` and Play.
-pub(crate) fn stop_emulator(ctx: &Ctx<'_>, serial: &str) -> Result<Stopped, ToolError> {
+pub(crate) fn stop_emulator(ctx: &mut Ctx<'_>, serial: &str) -> Result<Stopped, ToolError> {
     let adb = quick_adb(ctx).ok_or_else(adb_missing)?;
     let Some(target) = running(&adb)?.into_iter().find(|r| r.serial == serial) else {
         return Err(ToolError::new(ErrorCode::NotFound, format!("No emulator is running as {serial}."))
@@ -439,6 +479,7 @@ pub(crate) fn stop_emulator(ctx: &Ctx<'_>, serial: &str) -> Result<Stopped, Tool
         )
         .with_remediation("Close the emulator's window, or try again in a moment."));
     }
+    headless(ctx).0.lock().unwrap_or_else(PoisonError::into_inner).remove(serial);
     Ok(Stopped { name: target.name, waited_ms: started.elapsed().as_millis() as u64 })
 }
 

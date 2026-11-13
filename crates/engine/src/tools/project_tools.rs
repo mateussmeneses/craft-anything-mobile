@@ -56,10 +56,17 @@ pub fn specs() -> Vec<ToolSpec> {
         ToolSpec {
             id: "project_play",
             title: "Play a project's result",
-            summary: "Start the finished game or app a project built (its program, a Unity or Unreal package, or a Godot project in Godot), in its own window. If it's already running, says so instead of starting a second copy, unless `another` is true. A start that quits within two seconds is reported with its exit code and last output. It runs the code the builder wrote, so it needs the person's consent. Websites use project_preview instead. Known limit on Windows: when the caller's output is a pipe, the started program inherits it, so a caller reading that output to its end waits until the program exits (#207).",
-            beginner: "Opens the game or app that was made.",
+            summary: "Start the finished game or app a project built (its program, a Unity or Unreal package, or a Godot project in Godot), in its own window. If it's already running, says so instead of starting a second copy, unless `another` is true. A start that quits within two seconds is reported with its exit code and last output. An Android build (`on: \"android\"`, or when the project made only an APK) installs its debug APK on a device and starts it there: `device` names one; else this computer's default device (adb_default_device_set), else the only one online; with none online it starts the first virtual device (with a window unless `no_window`), and one this session started without a window is started again with one. Several online with none named is refused with `details.reason = \"device_choice_needed\"` and the devices; a failed install carries `details.install_failure` (e.g. INSTALL_FAILED_UPDATE_INCOMPATIBLE). It runs the code the builder wrote and changes the device, so it needs the person's consent. Websites use project_preview instead. Known limit on Windows: when the caller's output is a pipe, the started program (or emulator) inherits it, so a caller reading that output to its end waits until the program exits (#207).",
+            beginner: "Opens the game or app that was made, on this computer or an Android device.",
             toolset: Toolset::Projects,
-            effects: Effects::LAUNCHES_PROCESS.union(Effects::EXECUTES_FOREIGN_CODE),
+            // The union of every player's effects: an Android build also changes a device, talks
+            // to adb's server and may write an emulator's log.
+            effects: Effects::LAUNCHES_PROCESS
+                .union(Effects::EXECUTES_FOREIGN_CODE)
+                .union(Effects::MUTATES_DEVICE)
+                .union(Effects::ACCESSES_NETWORK)
+                .union(Effects::MUTATES_SESSION)
+                .union(Effects::WRITES_FILESYSTEM),
             requires: Requires::Nothing,
             input_schema: schema_of::<PlayParams>,
             run: project_play,
@@ -483,10 +490,20 @@ pub struct PlayParams {
     /// Start another copy even if one is running.
     #[serde(default)]
     pub another: bool,
-    /// Where to play: a player id (`computer`). Default: the first player that finds something
-    /// to start.
+    /// Where to play: a player id (`computer`, `android`). Default: the first player that finds
+    /// something to start.
     #[serde(default)]
     pub on: Option<String>,
+    /// Android: the device to use, a serial from adb_devices_find or a virtual device's name from
+    /// adb_emulators_list. Default: this computer's default device (adb_default_device_set), then
+    /// the only one online; several online and none named is refused with
+    /// `details.reason = "device_choice_needed"` and the list.
+    #[serde(default)]
+    pub device: Option<String>,
+    /// Android: start a virtual device without a window (the builder's checks do). Default false:
+    /// Play is for looking.
+    #[serde(default)]
+    pub no_window: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -619,6 +636,14 @@ fn project_play(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErro
     if crate::outputs::site_dir(&app).is_some() {
         return Err(ToolError::new(ErrorCode::NotSupported, "This project made a website.").with_remediation("Use project_preview to see it."));
     }
+    // Refused before anything runs: what can't be a serial or a virtual device's name.
+    if let Some(d) = &p.device
+        && craft_anything_engines::adb::validate_serial(d).is_err()
+        && craft_anything_engines::emulator::validate_avd_name(d).is_err()
+    {
+        return Err(ToolError::invalid(format!("{d:?} is neither a device serial nor a virtual device name."))
+            .with_remediation("Use a serial adb_devices_find lists or a name adb_emulators_list shows."));
+    }
     let named = p.on.as_deref().map(crate::play::named).transpose()?;
     let player = match named {
         Some(player) => {
@@ -630,7 +655,7 @@ fn project_play(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErro
         // Nothing found: this computer's player says what's missing, as Play always has.
         None => crate::play::found(&app, super::pin_tools::godot(ctx).as_deref()).and_then(crate::play::by_id).unwrap_or(&crate::play::Computer),
     };
-    let req = crate::play::PlayRequest { another: p.another, ..Default::default() };
+    let req = crate::play::PlayRequest { another: p.another, device: p.device, no_window: p.no_window };
     let mut out = player.play(ctx, &ws, &req)?;
     if let Value::Object(map) = &mut out {
         map.insert("on".into(), json!(player.id()));

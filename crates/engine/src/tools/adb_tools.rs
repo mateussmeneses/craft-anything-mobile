@@ -520,7 +520,7 @@ struct ActivityParams {
 // Shared plumbing
 
 /// Build an adb handle for the active settings, wiring cancellation and progress-friendly deadlines.
-pub(super) fn adb_for(ctx: &Ctx<'_>) -> Result<Adb, ToolError> {
+pub(crate) fn adb_for(ctx: &Ctx<'_>) -> Result<Adb, ToolError> {
     let s = &ctx.session.settings;
     let path = craft_anything_engines::locate("adb", &s.engines.tools, &s.engine_store_dir()).ok_or_else(|| {
         ToolError::new(ErrorCode::EngineMissing, "Android platform-tools (adb) isn't installed.")
@@ -1140,10 +1140,29 @@ pub(crate) fn install_apk(adb: &Adb, serial: &str, apk: &std::path::Path, replac
     let out = adb.targeted(serial, args)?;
     let combined = format!("{}{}", out.stdout_text(), out.stderr_text());
     if !out.success || !combined.contains("Success") {
+        let failure = install_failure(&combined);
+        let remediation = match failure.as_deref() {
+            Some("INSTALL_FAILED_UPDATE_INCOMPATIBLE") => {
+                "An app with this package name and another signature is installed; remove it with adb_app_remove, then try again."
+            }
+            Some("INSTALL_FAILED_INSUFFICIENT_STORAGE") => "The device is out of space; remove some apps or files, then try again.",
+            Some("INSTALL_FAILED_OLDER_SDK") => "The APK needs a newer Android than this device has; use a newer device or lower its minSdk.",
+            Some("INSTALL_FAILED_VERSION_DOWNGRADE") => "A newer version of this app is installed; remove it with adb_app_remove, then try again.",
+            _ => "The APK may be incompatible, unsigned for this device, or already installed; see the message.",
+        };
         return Err(ToolError::new(ErrorCode::ProgramFailed, format!("adb install failed: {}", tail_text(&combined).trim()))
-            .with_remediation("The APK may be incompatible, unsigned for this device, or already installed; see the message."));
+            .with_remediation(remediation)
+            .with_details(json!({"install_failure": failure, "serial": serial})));
     }
     Ok(tail_text(&combined))
+}
+
+/// The `INSTALL_FAILED_…` (or `INSTALL_PARSE_FAILED_…`) code in what `adb install` printed, so a
+/// client decides on the code, not on the words around it.
+pub(crate) fn install_failure(text: &str) -> Option<String> {
+    let start = text.find("INSTALL_FAILED_").or_else(|| text.find("INSTALL_PARSE_FAILED_"))?;
+    let code: String = text.get(start..)?.chars().take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_').take(80).collect();
+    Some(code)
 }
 
 /// Start `package`'s launcher activity on the online device `serial` (both already validated);
@@ -1427,6 +1446,14 @@ fn list_dir_names(dir: &std::path::Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_install_failure_is_read_as_its_code() {
+        let said = "Performing Streamed Install\nadb: failed to install app.apk: Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.x signatures do not match]";
+        assert_eq!(install_failure(said).as_deref(), Some("INSTALL_FAILED_UPDATE_INCOMPATIBLE"));
+        assert_eq!(install_failure("Failure [INSTALL_PARSE_FAILED_NO_CERTIFICATES]").as_deref(), Some("INSTALL_PARSE_FAILED_NO_CERTIFICATES"));
+        assert_eq!(install_failure("error: device offline"), None);
+    }
     use crate::tools::native_common::test_support::call_err;
     use crate::{CallOptions, Caller, Engine, Session, Settings};
 
