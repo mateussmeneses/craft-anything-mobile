@@ -111,6 +111,22 @@ fn unpack_code(b: &[u8], base: u8) -> String {
     }
 }
 
+/// The qualifier for a screen density (`xhdpi`, `anydpi`, or `<n>dpi` for an unusual one).
+pub fn density_qualifier(d: u32) -> String {
+    match d {
+        120 => "ldpi".into(),
+        160 => "mdpi".into(),
+        213 => "tvdpi".into(),
+        240 => "hdpi".into(),
+        320 => "xhdpi".into(),
+        480 => "xxhdpi".into(),
+        640 => "xxxhdpi".into(),
+        0xfffe => "anydpi".into(),
+        0xffff => "nodpi".into(),
+        d => format!("{d}dpi"),
+    }
+}
+
 /// Qualifier string and locale for a `ResTable_config` at `off`.
 pub fn config_qualifiers(r: &Reader<'_>, off: usize) -> (String, String) {
     let size = r.u32_le(off).unwrap_or(0) as usize;
@@ -214,18 +230,7 @@ pub fn config_qualifiers(r: &Reader<'_>, off: usize) -> (String, String) {
         }
     }
     if let Some(d) = get16(14).filter(|&v| v != 0) {
-        q.push(match d {
-            120 => "ldpi".into(),
-            160 => "mdpi".into(),
-            213 => "tvdpi".into(),
-            240 => "hdpi".into(),
-            320 => "xhdpi".into(),
-            480 => "xxhdpi".into(),
-            640 => "xxxhdpi".into(),
-            0xfffe => "anydpi".into(),
-            0xffff => "nodpi".into(),
-            d => format!("{d}dpi"),
-        });
+        q.push(density_qualifier(u32::from(d)));
     }
     match get8(13) {
         Some(1) => q.push("notouch".into()),

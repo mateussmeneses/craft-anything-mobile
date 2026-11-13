@@ -2722,8 +2722,11 @@ Owner: open · Status: in progress
       read as protocol buffers
 - [x] A bundle's resource table (`resources.pb`) in `android_resources_read` (locales only, of the
       configuration qualifiers; styles, arrays and plurals listed without their items)
-- [ ] A bundle's other configuration qualifiers and compound values, and its native libraries in
+- [x] A bundle's other configuration qualifiers (density, night mode, screen size, SDK version…), the items of its styles, arrays and plurals, and its native libraries in
       `android_package_show`
+- [ ] A bundle's attribute and styleable definitions are still listed without their items, and
+      the new qualifier and style reading is checked against synthetic protocol buffers only:
+      run `android_resources_read` on a real `.aab` and compare it with the same app's APK
 - [x] Check `android_bundle_show` on a real `.aab` (Flutter `build appbundle`, 2026-11-13: 3 ABIs, 8 assets, 3 components)
 - [ ] Check `android_bundle_show` on a real `.xapk`
 - [x] `android_package_show` on an `.aab` says "native code for no ABI" and 0 assets, while
