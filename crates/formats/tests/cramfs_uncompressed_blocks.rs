@@ -96,9 +96,9 @@ fn ordinary_compressed_blocks_still_recover() {
 }
 
 #[test]
-fn direct_and_corrupt_block_pointers_are_not_treated_as_raw_data() {
+fn corrupt_ordinary_and_direct_pointers_are_not_recovered() {
     let (data, pointers) = fixture(&[b'x'; 17], &[0]);
-    for encoded in [((pointers as u32 + 4) / 4) | 0xc000_0000, (data.len() as u32 + 1) | RAW, pointers as u32 | RAW] {
+    for encoded in [(data.len() as u32).div_ceil(4) | 0xc000_0000, (data.len() as u32 + 1) | RAW, pointers as u32 | RAW] {
         let mut corrupt = data.clone();
         corrupt[pointers..pointers + 4].copy_from_slice(&encoded.to_le_bytes());
         assert_skipped_with_sibling(&fsread::cramfs::read(&corrupt, &Limits::default()));

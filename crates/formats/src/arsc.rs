@@ -121,7 +121,7 @@ pub fn config_qualifiers(r: &Reader<'_>, off: usize) -> (String, String) {
         q.push(format!("mcc{mcc}"));
     }
     if let Some(mnc) = get16(6).filter(|&v| v != 0) {
-        q.push(format!("mnc{mnc}"));
+        q.push(format!("mnc{}", if mnc == u16::MAX { 0 } else { mnc }));
     }
     let lang = if size >= 12 { r.slice(off + 8, 2).map(|b| unpack_code(b, b'a')).unwrap_or_default() } else { String::new() };
     let region = if size >= 12 { r.slice(off + 10, 2).map(|b| unpack_code(b, b'0')).unwrap_or_default() } else { String::new() };
@@ -150,6 +150,14 @@ pub fn config_qualifiers(r: &Reader<'_>, off: usize) -> (String, String) {
     if !locale.is_empty() {
         q.push(locale.clone());
     }
+    let axis = |q: &mut Vec<String>, v: Option<u8>, mask, names: &[(u8, &str)]| {
+        if let Some(key) = v.map(|n| n & mask)
+            && let Some((_, name)) = names.iter().find(|(value, _)| *value == key)
+        {
+            q.push((*name).to_owned());
+        }
+    };
+    axis(&mut q, get8(19), 0x03, &[(1, "neuter"), (2, "feminine"), (3, "masculine")]);
     if let Some(sl) = get8(28) {
         match sl & 0xc0 {
             0x40 => q.push("ldltr".into()),
@@ -180,6 +188,9 @@ pub fn config_qualifiers(r: &Reader<'_>, off: usize) -> (String, String) {
             _ => {}
         }
     }
+    axis(&mut q, get8(48), 0x03, &[(1, "notround"), (2, "round")]);
+    axis(&mut q, get8(49), 0x03, &[(1, "nowidecg"), (2, "widecg")]);
+    axis(&mut q, get8(49), 0x0c, &[(4, "lowdr"), (8, "highdr")]);
     match get8(12) {
         Some(1) => q.push("port".into()),
         Some(2) => q.push("land".into()),
@@ -221,12 +232,14 @@ pub fn config_qualifiers(r: &Reader<'_>, off: usize) -> (String, String) {
         Some(3) => q.push("finger".into()),
         _ => {}
     }
+    axis(&mut q, get8(18), 0x03, &[(1, "keysexposed"), (2, "keyshidden"), (3, "keyssoft")]);
     match get8(16) {
         Some(1) => q.push("nokeys".into()),
         Some(2) => q.push("qwerty".into()),
         Some(3) => q.push("12key".into()),
         _ => {}
     }
+    axis(&mut q, get8(18), 0x0c, &[(4, "navexposed"), (8, "navhidden")]);
     match get8(17) {
         Some(1) => q.push("nonav".into()),
         Some(2) => q.push("dpad".into()),
@@ -445,6 +458,10 @@ fn parse_type(r: &Reader<'_>, c: usize, ch: usize, sz: usize, p: &Pkg<'_>, type_
         table.warnings.push(format!("{tname} ({cfg}): entry table runs past its chunk"));
         return;
     }
+    if count != 0 && (entries_start < ch.saturating_add(table_bytes) || entries_start > sz) {
+        table.warnings.push(format!("{tname} ({cfg}): invalid entry data start"));
+        return;
+    }
     for i in 0..count {
         let at = c + ch;
         if sparse {
@@ -497,12 +514,27 @@ fn parse_type(r: &Reader<'_>, c: usize, ch: usize, sz: usize, p: &Pkg<'_>, type_
         } else {
             entry.key = r.u32_le(e + 4).and_then(|k| p.keys.get(k)).unwrap_or("").to_string();
             if eflags & 0x01 != 0 {
+                if esize < 16 || e.saturating_add(esize) > end {
+                    table.truncated = true;
+                    table.warnings.push(format!("{tname} ({cfg}): incomplete bag header"));
+                    table.entries.push(entry);
+                    continue;
+                }
+                let n = r.u32_le(e + 12).unwrap_or(0) as usize;
+                let mut m = e + esize;
+                if n > (end - m) / 12 {
+                    table.truncated = true;
+                    table.warnings.push(format!("{tname} ({cfg}): incomplete bag data"));
+                    table.entries.push(entry);
+                    continue;
+                }
                 let parent = r.u32_le(e + 8).unwrap_or(0);
                 if parent != 0 {
                     entry.parent = Some(format!("@{parent:#010x}"));
                 }
-                let n = r.u32_le(e + 12).unwrap_or(0) as usize;
-                let mut m = e.saturating_add(esize.max(16));
+                if n > MAX_BAG {
+                    table.truncated = true;
+                }
                 for _ in 0..n.min(MAX_BAG) {
                     if m.saturating_add(12) > end {
                         break;

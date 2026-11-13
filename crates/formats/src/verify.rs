@@ -449,6 +449,13 @@ pub fn verify_chain(certs: &[&[u8]]) -> ChainResult {
         }
         seen.push(sha.clone());
         let info = der::certificate(current);
+        if let Some(info) = &info {
+            for note in &info.notes {
+                if !notes.contains(note) {
+                    notes.push(note.clone());
+                }
+            }
+        }
         let subject = info.as_ref().map(|c| c.subject.clone()).unwrap_or_default();
         let issuer = info.as_ref().map(|c| c.issuer.clone()).unwrap_or_default();
         let mut issuer_cert = None;
@@ -550,6 +557,9 @@ fn verify_cms_signature(sd: &pkcs7::SignedData, spki: &[u8], message: &[u8]) -> 
 pub fn verify_macho_cms(cms_der: &[u8], code_directory: &[u8]) -> Option<MachoCms> {
     let sd = pkcs7::parse_signed_data(cms_der)?;
     let mut notes = sd.signer_identity_notes.clone();
+    if sd.non_minimal_length {
+        notes.push(der::NON_MINIMAL_LENGTH_NOTE.into());
+    }
     if let Some(reason) = sd.signed_attrs_error {
         notes.push(reason.into());
     }
@@ -785,6 +795,9 @@ pub struct Pkcs7Signature {
 pub fn verify_pkcs7_detached(content: &[u8], pkcs7_der: &[u8]) -> Option<Pkcs7Signature> {
     let sd = pkcs7::parse_signed_data(pkcs7_der)?;
     let mut notes = sd.signer_identity_notes.clone();
+    if sd.non_minimal_length {
+        notes.push(der::NON_MINIMAL_LENGTH_NOTE.into());
+    }
     if let Some(reason) = sd.signed_attrs_error {
         notes.push(reason.into());
     }

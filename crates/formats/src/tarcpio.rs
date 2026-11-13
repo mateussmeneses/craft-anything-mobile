@@ -244,12 +244,13 @@ fn tar_with_name_copy_limit(data: &[u8], max_members: usize, mut name_bytes_left
                             }
                             b"size" => {
                                 let size = std::str::from_utf8(value).ok().and_then(|s| s.parse().ok());
+                                if !value.is_empty() && (size.is_none() || !value.iter().all(u8::is_ascii_digit)) {
+                                    let scope = if global { "global" } else { "local" };
+                                    out.warnings.push(format!("invalid {scope} pax size at {pos:#x}"));
+                                    out.length = pos as u64;
+                                    break 'headers;
+                                }
                                 if global {
-                                    if !value.is_empty() && (size.is_none() || !value.iter().all(u8::is_ascii_digit)) {
-                                        out.warnings.push(format!("invalid global pax size at {pos:#x}"));
-                                        out.length = pos as u64;
-                                        break 'headers;
-                                    }
                                     global_size = size;
                                 } else {
                                     pax_size = size;
@@ -358,11 +359,17 @@ fn pax_record(data: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
 }
 
 fn hex_field(f: &[u8]) -> Option<u64> {
+    if !f.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
     let s = std::str::from_utf8(f).ok()?;
     u64::from_str_radix(s, 16).ok()
 }
 
 fn oct_field(f: &[u8]) -> Option<u64> {
+    if !f.iter().all(|b| (b'0'..=b'7').contains(b)) {
+        return None;
+    }
     let s = std::str::from_utf8(f).ok()?;
     u64::from_str_radix(s, 8).ok()
 }
@@ -537,6 +544,14 @@ pub fn member_data<'a>(data: &'a [u8], m: &Member) -> Option<&'a [u8]> {
 mod tests {
     use super::*;
     use craft_anything_testkit::firmware as fx;
+
+    #[test]
+    fn plus_sign_in_cpio_fields_is_rejected() {
+        assert_eq!(hex_field(b"+000000A"), None);
+        assert_eq!(oct_field(b"+00012"), None);
+        assert_eq!(hex_field(b"0000000A"), Some(10));
+        assert_eq!(oct_field(b"00012"), Some(10));
+    }
 
     fn global_record(key: &str, value: &str) -> String {
         let tail = format!(" {key}={value}\n");

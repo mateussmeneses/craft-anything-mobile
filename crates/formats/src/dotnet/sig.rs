@@ -4,6 +4,7 @@
 use super::meta::{Metadata, compressed_u32, t};
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Deepest type nesting decoded (arrays of generics of pointers…).
 pub const MAX_DEPTH: u32 = 32;
@@ -117,6 +118,7 @@ pub struct Names<'m, 'a> {
     enclosing: BTreeMap<u32, u32>,
     type_gp: BTreeMap<u32, Vec<String>>,
     method_gp: BTreeMap<u32, Vec<String>>,
+    trailing_signature_data: AtomicBool,
 }
 
 /// C# keyword for well-known system types.
@@ -176,7 +178,30 @@ impl<'m, 'a> Names<'m, 'a> {
                 })
                 .collect()
         };
-        Names { md, enclosing, type_gp: fin(type_gp), method_gp: fin(method_gp) }
+        Names { md, enclosing, type_gp: fin(type_gp), method_gp: fin(method_gp), trailing_signature_data: AtomicBool::new(false) }
+    }
+
+    /// A bounded warning for complete signatures decoded through this resolver. Padding does
+    /// not discard the decoded prefix; incremental types and nested function pointers do not
+    /// treat the enclosing signature's remaining bytes as padding.
+    pub fn signature_warning(&self) -> Option<&'static str> {
+        self.trailing_signature_data
+            .load(Ordering::Relaxed)
+            .then_some("one or more signature blobs contain trailing bytes; decoded types are retained, but the extra data was not interpreted")
+    }
+
+    pub(crate) fn add_signature_warning(&self, warnings: &mut Vec<String>) {
+        if let Some(warning) = self.signature_warning() {
+            // Keep this single diagnostic visible when a caller caps the displayed warnings.
+            warnings.insert(0, warning.into());
+        }
+    }
+
+    pub(crate) fn finish_signature<T>(&self, cursor: &Cur<'_>, decoded: T) -> T {
+        if !cursor.rest().is_empty() {
+            self.trailing_signature_data.store(true, Ordering::Relaxed);
+        }
+        decoded
     }
 
     pub fn type_generics(&self, typedef: u32) -> &[String] {
@@ -258,7 +283,8 @@ impl<'m, 'a> Names<'m, 'a> {
             }
             t::TYPE_SPEC => {
                 let blob = self.md.blob_cell(t::TYPE_SPEC, row, 0);
-                self.ty(&mut Cur::new(blob), g, depth + 1).unwrap_or_else(|| "?".into())
+                let mut c = Cur::new(blob);
+                self.ty(&mut c, g, depth + 1).map(|ty| self.finish_signature(&c, ty)).unwrap_or_else(|| "?".into())
             }
             _ => "?".into(),
         }
@@ -329,17 +355,27 @@ impl<'m, 'a> Names<'m, 'a> {
                 if nsizes > rank {
                     return None;
                 }
-                for _ in 0..nsizes {
-                    c.cu32()?;
-                }
+                let sizes = (0..nsizes).map(|_| c.cu32()).collect::<Option<Vec<_>>>()?;
                 let nlo = c.cu32()?;
                 if nlo > rank {
                     return None;
                 }
-                for _ in 0..nlo {
-                    c.ci32()?;
-                }
-                format!("{el}[{}]", ",".repeat(rank as usize - 1))
+                let lower_bounds = (0..nlo).map(|_| c.ci32()).collect::<Option<Vec<_>>>()?;
+                // General ARRAY is not SZARRAY, even at rank one. Keep its CLI shape
+                // notation, including any sizes and signed lower bounds from metadata.
+                let dimensions = (0..rank as usize)
+                    .map(|dimension| match (sizes.get(dimension), lower_bounds.get(dimension)) {
+                        (Some(&size), lower) => {
+                            let lower = i64::from(lower.copied().unwrap_or(0));
+                            let upper = lower + i64::from(size) - 1;
+                            format!("{lower}...{upper}")
+                        }
+                        (None, Some(lower)) => format!("{lower}..."),
+                        (None, None) if rank == 1 => "*".into(),
+                        (None, None) => String::new(),
+                    })
+                    .collect::<Vec<_>>();
+                format!("{el}[{}]", dimensions.join(","))
             }
             0x15 => {
                 let kind = c.u8()?;
@@ -422,7 +458,9 @@ impl<'m, 'a> Names<'m, 'a> {
 
     /// A MethodDefSig, MethodRefSig or PropertySig.
     pub fn method_sig(&self, blob: &[u8], g: &GenCtx<'_>) -> Option<MethodSig> {
-        self.method_sig_inner(&mut Cur::new(blob), g, 0)
+        let mut c = Cur::new(blob);
+        let signature = self.method_sig_inner(&mut c, g, 0)?;
+        Some(self.finish_signature(&c, signature))
     }
 
     /// A FieldSig (`0x06 type`).
@@ -431,7 +469,8 @@ impl<'m, 'a> Names<'m, 'a> {
         if c.u8()? != 0x06 {
             return None;
         }
-        self.ty(&mut c, g, 0)
+        let field_type = self.ty(&mut c, g, 0)?;
+        Some(self.finish_signature(&c, field_type))
     }
 
     /// A LocalVarSig (`0x07 count types`).
@@ -453,7 +492,7 @@ impl<'m, 'a> Names<'m, 'a> {
             }
             v.push(self.ty(&mut c, g, 0)?);
         }
-        Some(v)
+        Some(self.finish_signature(&c, v))
     }
 
     /// A MethodSpec instantiation (`0x0a count types`).
@@ -470,7 +509,7 @@ impl<'m, 'a> Names<'m, 'a> {
         for _ in 0..n {
             v.push(self.ty(&mut c, g, 0)?);
         }
-        Some(v)
+        Some(self.finish_signature(&c, v))
     }
 }
 

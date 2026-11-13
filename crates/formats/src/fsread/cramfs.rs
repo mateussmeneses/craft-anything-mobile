@@ -2,7 +2,8 @@
 //! byte order. Inodes are 12 bytes; a
 //! directory's children sit consecutively in its data span; a regular file's data is a run of
 //! 4 KiB blocks, stored as zlib streams, uncompressed bytes or zero-filled holes, preceded by
-//! end-offset pointers. Bounded against cycles, huge sizes and corrupt offsets.
+//! end-offset pointers or direct start pointers with optional compressed lengths.
+//! Direct blocks may be shared. Bounded against cycles, huge sizes and corrupt offsets.
 
 use super::{FsEntry, FsImage, FsKind, Limits, join};
 use crate::bytes::Reader;
@@ -39,6 +40,22 @@ pub fn read(data: &[u8], limits: &Limits) -> FsImage {
         img.complete = false;
         return img;
     };
+    let word = |off| if big_endian { r.u32_be(off) } else { r.u32_le(off) };
+    let data = if word(8).is_some_and(|flags| flags & 1 != 0) {
+        let Some(size) = word(4).and_then(|n| usize::try_from(n).ok()).filter(|&n| n >= 76) else {
+            img.warn("cramfs: invalid version-two filesystem size");
+            img.complete = false;
+            return img;
+        };
+        if size > data.len() {
+            img.warn("cramfs: image ends before its declared filesystem size");
+            img.complete = false;
+        }
+        data.get(..size).unwrap_or(data)
+    } else {
+        data
+    };
+    let r = Reader::new(data);
     let Some(root) = inode_at(&r, 64, big_endian) else {
         img.warn("root inode unreadable");
         img.complete = false;
@@ -120,19 +137,39 @@ fn file_data(data: &[u8], ino: &Inode, limits: &Limits, img: &mut FsImage, big_e
     let mut block_start = ino.offset.checked_add(nblocks.checked_mul(4)?)?;
     for i in 0..nblocks {
         let pointer_offset = ino.offset.checked_add(i.checked_mul(4)?)?;
-        let pointer = if big_endian { r.u32_be(pointer_offset) } else { r.u32_le(pointer_offset) }?;
-        if pointer & DIRECT_PTR != 0 {
-            img.warn("cramfs direct block pointers are not supported");
+        let pointer = if big_endian { r.u32_be(pointer_offset) } else { r.u32_le(pointer_offset) };
+        let Some(pointer) = pointer else {
+            img.warn("cramfs block pointer table is unavailable");
             img.complete = false;
             return None;
-        }
-        let end = (pointer & !UNCOMPRESSED) as usize;
+        };
+        let expected = ino.size.saturating_sub(i.saturating_mul(BLK)).min(BLK);
+        let address = pointer & !(UNCOMPRESSED | DIRECT_PTR);
+        let end = if pointer & DIRECT_PTR != 0 {
+            let range = usize::try_from(address).ok().and_then(|start| start.checked_mul(4)).and_then(|start| {
+                if pointer & UNCOMPRESSED != 0 {
+                    Some((start, start.checked_add(expected)?))
+                } else {
+                    let length = if big_endian { r.u16_be(start) } else { r.u16_le(start) }?;
+                    let payload = start.checked_add(2)?;
+                    Some((payload, payload.checked_add(usize::from(length))?))
+                }
+            });
+            let Some((start, end)) = range else {
+                img.warn("cramfs direct block header is unavailable");
+                img.complete = false;
+                return None;
+            };
+            block_start = start;
+            end
+        } else {
+            address as usize
+        };
         if end < block_start || end > data.len() {
             img.warn("corrupt cramfs block pointer");
             img.complete = false;
             return None;
         }
-        let expected = ino.size.saturating_sub(i.saturating_mul(BLK)).min(BLK);
         if end == block_start {
             out.resize(out.len().checked_add(expected)?, 0);
             continue;

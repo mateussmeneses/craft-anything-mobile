@@ -42,6 +42,8 @@ pub struct SignedData {
     pub signer_key_identifier: Option<Vec<u8>>,
     /// Readable identity irregularities; these do not discard the certificates or algorithms.
     pub signer_identity_notes: Vec<String>,
+    /// At least one walked ASN.1 element uses a redundant length encoding.
+    pub non_minimal_length: bool,
     /// The encapsulated eContent, when present (detached signatures have none).
     pub econtent: Option<Vec<u8>>,
 }
@@ -219,6 +221,7 @@ pub fn parse_signed_data(cms: &[u8]) -> Option<SignedData> {
         signer_serial,
         signer_key_identifier,
         signer_identity_notes,
+        non_minimal_length: der::has_non_minimal_length(cms),
         econtent,
     })
 }

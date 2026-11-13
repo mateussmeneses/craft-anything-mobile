@@ -95,6 +95,32 @@ impl PeHeaders {
         (self.pe32_plus || address <= u64::from(u32::MAX)).then_some(address)
     }
 
+    /// Bytes remaining in the selected RVA mapping before file offsets stop being contiguous.
+    fn rva_file_len(&self, rva: u32) -> Option<usize> {
+        let base = self.rva_to_offset(rva)?;
+        let next_section_distance = |count: usize| {
+            self.sections
+                .iter()
+                .take(count)
+                .filter(|s| s.virtual_size.max(s.raw_size) > 0)
+                .filter_map(|s| s.rva.checked_sub(rva))
+                .filter(|&distance| distance > 0)
+                .min()
+                .unwrap_or(u32::MAX)
+        };
+        match self.sections.iter().enumerate().find(|(_, s)| rva.checked_sub(s.rva).is_some_and(|delta| delta < s.virtual_size.max(s.raw_size))) {
+            Some((index, s)) => rva.checked_sub(s.rva).and_then(|delta| s.raw_size.checked_sub(delta)).map(|len| len.min(next_section_distance(index))),
+            None => self.size_of_headers.checked_sub(rva).map(|len| len.min(next_section_distance(self.sections.len()))),
+        }
+        .map(u64::from)
+        .and_then(|len| {
+            let address_end = u64::from(u32::MAX) + 1;
+            let remaining_rvas = address_end.checked_sub(u64::from(rva))?;
+            let remaining_offsets = address_end.checked_sub(u64::try_from(base).ok()?)?;
+            usize::try_from(len.min(remaining_rvas).min(remaining_offsets)).ok()
+        })
+    }
+
     pub fn dir(&self, i: usize) -> Option<(u32, u32)> {
         self.data_dirs.get(i).copied().filter(|(rva, size)| *rva != 0 && *size != 0)
     }
@@ -272,7 +298,7 @@ pub struct BoundModule {
 pub struct ImportTable {
     pub rows: Vec<ImportRow>,
     pub bound_modules: Vec<BoundModule>,
-    /// A cap stopped the walk: more rows may exist.
+    /// A cap or incomplete directory stopped the walk: more rows may exist.
     pub truncated: bool,
     pub warnings: Vec<String>,
 }
@@ -293,26 +319,56 @@ fn thunk_target(r: &Reader<'_>, h: &PeHeaders, v: u64, name_rva: impl Fn(u64) ->
     (name, hint, None)
 }
 
+fn mapped_import_directory<'a>(data: &'a [u8], h: &PeHeaders, rva: u32, size: u32, label: &str, out: &mut ImportTable) -> Option<Reader<'a>> {
+    let Some((start, mapped)) = h.rva_to_offset(rva).zip(h.rva_file_len(rva)) else {
+        out.truncated = true;
+        out.warnings.push(format!("the {label} directory at RVA {rva:#x} is outside the file"));
+        return None;
+    };
+    let available = data.get(start..).unwrap_or_default();
+    let len = mapped.min(available.len());
+    if len < size as usize {
+        out.truncated = true;
+        out.warnings.push(format!("the {label} directory extends beyond its mapped file bytes"));
+    }
+    Some(Reader::new(available.get(..len).unwrap_or_default()))
+}
+
+fn import_directory<'a>(data: &'a [u8], h: &PeHeaders, index: usize, label: &str, out: &mut ImportTable) -> Option<Reader<'a>> {
+    let (rva, size) = h.dir(index)?;
+    let mapped = mapped_import_directory(data, h, rva, size, label, out)?;
+    Some(Reader::new(mapped.slice(0, mapped.len().min(size as usize))?))
+}
+
 fn normal_imports(data: &[u8], h: &PeHeaders, out: &mut ImportTable, budget: &mut TableTextBudget) {
     if budget.exhausted {
         return;
     }
     let r = Reader::new(data);
-    let Some((rva, _)) = h.dir(1) else { return };
-    let Some(start) = h.rva_to_offset(rva) else {
-        out.warnings.push(format!("the import directory at RVA {rva:#x} is outside the file"));
-        return;
-    };
+    let Some((rva, size)) = h.data_dirs.get(1).copied().filter(|(rva, _)| *rva != 0) else { return };
+    let Some(directory) = mapped_import_directory(data, h, rva, size, "import", out) else { return };
     let thunk_size = if h.pe32_plus { 8usize } else { 4 };
+    let mut warned_size = false;
     for d in 0..MAX_IMPORT_DESCRIPTORS {
-        let Some(desc) = d.checked_mul(20).and_then(|o| start.checked_add(o)) else { break };
+        let desc = d * 20;
+        if directory.slice(desc, 20).is_none() {
+            out.truncated = true;
+            out.warnings.push("the import descriptor table ends before a complete terminator".into());
+            return;
+        }
+        // Windows follows descriptors to their terminator even when Size is zero or too short.
+        // The selected file mapping remains the hard boundary; Size is diagnostic only.
+        if desc + 20 > size as usize && !warned_size {
+            out.warnings.push("the import descriptor table extends beyond its declared size".into());
+            warned_size = true;
+        }
         let (Some(oft), Some(stamp), Some(name_rva), Some(ft)) =
-            (r.u32_le(desc), r.u32_le(desc.saturating_add(4)), r.u32_le(desc.saturating_add(12)), r.u32_le(desc.saturating_add(16)))
+            (directory.u32_le(desc), directory.u32_le(desc + 4), directory.u32_le(desc + 12), directory.u32_le(desc + 16))
         else {
             break;
         };
         if oft == 0 && name_rva == 0 && ft == 0 {
-            break;
+            return;
         }
         let library = h.rva_to_offset(name_rva).and_then(|o| r.cstr(o, 256)).unwrap_or_default();
         let bound = stamp != 0;
@@ -341,6 +397,8 @@ fn normal_imports(data: &[u8], h: &PeHeaders, out: &mut ImportTable, budget: &mu
             out.rows.push(ImportRow { library: library.clone(), kind: ImportKind::Normal, name, ordinal, hint, slot_va, bound });
         }
     }
+    out.truncated = true;
+    out.warnings.push(format!("only the first {MAX_IMPORT_DESCRIPTORS} import descriptors were read"));
 }
 
 /// An RVA held in a delay-load descriptor: old linkers wrote virtual addresses instead.
@@ -353,21 +411,22 @@ fn delay_imports(data: &[u8], h: &PeHeaders, out: &mut ImportTable, budget: &mut
         return;
     }
     let r = Reader::new(data);
-    let Some((rva, _)) = h.dir(13) else { return };
-    let Some(start) = h.rva_to_offset(rva) else {
-        out.warnings.push(format!("the delay-load directory at RVA {rva:#x} is outside the file"));
-        return;
-    };
+    let Some(directory) = import_directory(data, h, 13, "delay-load", out) else { return };
     let thunk_size = if h.pe32_plus { 8usize } else { 4 };
     for d in 0..MAX_IMPORT_DESCRIPTORS {
-        let Some(desc) = d.checked_mul(32).and_then(|o| start.checked_add(o)) else { break };
+        let desc = d * 32;
+        if directory.slice(desc, 32).is_none() {
+            out.truncated = true;
+            out.warnings.push("the delay-load descriptor table ends before a complete terminator".into());
+            return;
+        }
         let (Some(attrs), Some(name_f), Some(iat_f), Some(int_f)) =
-            (r.u32_le(desc), r.u32_le(desc.saturating_add(4)), r.u32_le(desc.saturating_add(12)), r.u32_le(desc.saturating_add(16)))
+            (directory.u32_le(desc), directory.u32_le(desc + 4), directory.u32_le(desc + 12), directory.u32_le(desc + 16))
         else {
             break;
         };
         if name_f == 0 && iat_f == 0 && int_f == 0 {
-            break;
+            return;
         }
         let rva_based = attrs & 1 != 0;
         let conv = |f: u32| delay_rva(f, rva_based, h.image_base);
@@ -397,47 +456,73 @@ fn delay_imports(data: &[u8], h: &PeHeaders, out: &mut ImportTable, budget: &mut
             out.rows.push(ImportRow { library: library.clone(), kind: ImportKind::Delay, name, ordinal, hint, slot_va, bound: false });
         }
     }
+    out.truncated = true;
+    out.warnings.push(format!("only the first {MAX_IMPORT_DESCRIPTORS} delay-load descriptors were read"));
 }
 
 fn bound_modules(data: &[u8], h: &PeHeaders, out: &mut ImportTable, budget: &mut TableTextBudget) {
     if budget.exhausted {
         return;
     }
-    let r = Reader::new(data);
-    let Some((rva, size)) = h.dir(11) else { return };
-    let Some(start) = h.rva_to_offset(rva) else {
-        out.warnings.push(format!("the bound import directory at RVA {rva:#x} is outside the file"));
-        return;
-    };
-    let size = size as usize;
+    let Some(directory) = import_directory(data, h, 11, "bound import", out) else { return };
     let mut pos = 0usize;
-    while pos < size && out.bound_modules.len() < MAX_IMPORT_DESCRIPTORS {
-        let Some(at) = start.checked_add(pos) else { break };
-        let (Some(stamp), Some(name_off), Some(refs)) = (r.u32_le(at), r.u16_le(at.saturating_add(4)), r.u16_le(at.saturating_add(6))) else { break };
-        if stamp == 0 && name_off == 0 {
-            break;
-        }
-        let name_of = |o: u16| start.checked_add(usize::from(o)).and_then(|p| r.cstr(p, 256)).unwrap_or_default();
-        let name = name_of(name_off);
-        if !budget.take(name.len()) {
+    while out.bound_modules.len() < MAX_IMPORT_DESCRIPTORS {
+        if directory.slice(pos, 8).is_none() {
+            out.truncated = true;
+            out.warnings.push("the bound import table ends before a complete terminator".into());
             return;
         }
-        let mut forwarders = Vec::new();
-        for i in 0..usize::from(refs) {
-            let Some(f) = (i + 1).checked_mul(8).and_then(|o| at.checked_add(o)) else { break };
-            let Some(o) = r.u16_le(f.saturating_add(4)) else { break };
-            let forwarder = name_of(o);
-            if !budget.take(forwarder.len()) {
-                break;
-            }
-            forwarders.push(forwarder);
+        let (Some(stamp), Some(name_off), Some(refs)) = (directory.u32_le(pos), directory.u16_le(pos + 4), directory.u16_le(pos + 6)) else { return };
+        if stamp == 0 && name_off == 0 {
+            return;
         }
-        out.bound_modules.push(BoundModule { name, timestamp: stamp, forwarders });
+        let name_of = |offset: u16| {
+            let offset = usize::from(offset);
+            let bytes = directory.slice(offset, directory.len().checked_sub(offset)?.min(256))?;
+            let end = bytes.iter().position(|&byte| byte == 0)?;
+            Some(String::from_utf8_lossy(bytes.get(..end)?).into_owned())
+        };
+        let name = name_of(name_off);
+        if name.is_none() {
+            out.truncated = true;
+            out.warnings.push("a bound import name is outside its directory".into());
+        }
+        if !budget.take(name.as_ref().map_or(0, String::len)) {
+            return;
+        }
+        let refs_start = pos + 8;
+        let complete = directory.len().saturating_sub(refs_start) / 8;
+        let count = usize::from(refs).min(complete);
+        let mut forwarders = Vec::new();
+        let mut bad_forwarder = false;
+        for i in 0..count {
+            let at = refs_start + i * 8;
+            if let Some(name) = directory.u16_le(at + 4).and_then(name_of) {
+                if !budget.take(name.len()) {
+                    break;
+                }
+                forwarders.push(name);
+            } else {
+                bad_forwarder = true;
+            }
+        }
+        if bad_forwarder {
+            out.truncated = true;
+            out.warnings.push("a bound forwarder name is outside its directory".into());
+        }
+        out.bound_modules.push(BoundModule { name: name.unwrap_or_default(), timestamp: stamp, forwarders });
         if budget.exhausted {
             return;
         }
-        pos = pos.saturating_add((usize::from(refs) + 1) * 8);
+        if count < usize::from(refs) {
+            out.truncated = true;
+            out.warnings.push("the bound import forwarder records run past the directory".into());
+            return;
+        }
+        pos = refs_start + count * 8;
     }
+    out.truncated = true;
+    out.warnings.push(format!("only the first {MAX_IMPORT_DESCRIPTORS} bound import descriptors were read"));
 }
 
 /// Read the import, delay-load and bound import directories.
@@ -845,29 +930,7 @@ pub fn parse_resources(data: &[u8], max_entries: usize) -> Result<Resources, For
     let Some((rva, size)) = h.dir(2) else { return Ok(res) };
     let base = h.rva_to_offset(rva).ok_or_else(|| FormatError::Malformed("resource directory is not in the file".into()))?;
     let available = data.get(base..).ok_or_else(|| FormatError::Truncated("resource directory".into()))?;
-    // Keep resource metadata inside the initial RVA mapping.
-    let next_section_distance = |count: usize| {
-        h.sections
-            .iter()
-            .take(count)
-            .filter(|s| s.virtual_size.max(s.raw_size) > 0)
-            .filter_map(|s| s.rva.checked_sub(rva))
-            .filter(|&distance| distance > 0)
-            .min()
-            .unwrap_or(u32::MAX)
-    };
-    let mapped_len = match h.sections.iter().enumerate().find(|(_, s)| rva.checked_sub(s.rva).is_some_and(|delta| delta < s.virtual_size.max(s.raw_size))) {
-        Some((index, s)) => rva.checked_sub(s.rva).and_then(|delta| s.raw_size.checked_sub(delta)).map(|len| len.min(next_section_distance(index))),
-        None => h.size_of_headers.checked_sub(rva).map(|len| len.min(next_section_distance(h.sections.len()))),
-    }
-    .map(u64::from)
-    .and_then(|len| {
-        let address_end = u64::from(u32::MAX) + 1;
-        let remaining_rvas = address_end.checked_sub(u64::from(rva))?;
-        let remaining_offsets = address_end.checked_sub(u64::try_from(base).ok()?)?;
-        usize::try_from(len.min(remaining_rvas).min(remaining_offsets)).ok()
-    })
-    .ok_or_else(|| FormatError::Malformed("resource directory is not in the file".into()))?;
+    let mapped_len = h.rva_file_len(rva).ok_or_else(|| FormatError::Malformed("resource directory is not in the file".into()))?;
     if size as usize > available.len() {
         res.warnings.push("resource directory runs past the end of the file; reading the available bytes".into());
     }
