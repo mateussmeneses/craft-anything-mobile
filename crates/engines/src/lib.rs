@@ -13,6 +13,7 @@ pub mod android_ui;
 pub mod assets;
 pub mod cdp;
 pub mod cutter;
+pub mod device_profiles;
 pub mod emulator;
 pub mod frida;
 pub mod game;

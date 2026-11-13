@@ -2701,8 +2701,13 @@ Owner: open · Status: in progress
       `engines_android_sdk_check`; `bundletool` 1.18.3 is a pinned `.jar` engine)
 - [ ] Run the bundletool pin through a real install on a machine with Java (`engines_install`) and
       check `locate` finds `bundletool.jar`; only the pin's hash was verified
-- [ ] Device profiles as a typed table (resolution, density, API level, ABI, memory) that a check
-      can ask an emulator for
+- [x] Device profiles as a typed table (resolution, density, API level, ABI, memory) that a check
+      can ask an emulator for (`engines/src/device_profiles.toml`; `device_profiles::match_avd`,
+      `rank` and `pick` against the virtual devices `android_sdk` reads)
+- [ ] Show the device profiles and which virtual device fits each in `engines_android_sdk_check` (or
+      an `adb_emulators_list` field), and have the Android checks (R6.4/R6.5) ask for a profile by id
+- [ ] A way to create a virtual device for a profile that no existing one fits (needs `avdmanager`;
+      consent, no emulator start); more profiles (foldable, small tablet) once a check needs them
 - [ ] Say in the Engines settings page which SDK was found
 
 ### R6.2 Android packages beyond one APK

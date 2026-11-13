@@ -1,0 +1,51 @@
+# Device profiles: the kinds of Android screen a check can ask an emulator for.
+# A profile is a target to judge a build on, not a claim about one phone model. Sizes are portrait
+# pixels; `density` is `hw.lcd.density` (dpi); `min_api` is the lowest Android API level the
+# virtual device may run; `abis` are the CPU types it may have; `ram_mb` is the least memory it may
+# have. `device_profiles::match_avd` compares one of these with a virtual device that
+# `android_sdk` read.
+version = 1
+
+[[profile]]
+id = "phone_small"
+title = "Small phone (HD)"
+kind = "phone"
+width = 720
+height = 1280
+density = 320
+min_api = 30
+abis = ["x86_64", "arm64-v8a"]
+ram_mb = 2048
+
+[[profile]]
+id = "phone_medium"
+title = "Phone (full HD+)"
+kind = "phone"
+width = 1080
+height = 2400
+density = 420
+min_api = 34
+abis = ["x86_64", "arm64-v8a"]
+ram_mb = 2048
+
+[[profile]]
+id = "phone_large"
+title = "Large phone (quad HD+)"
+kind = "phone"
+width = 1440
+height = 3120
+density = 560
+min_api = 34
+abis = ["x86_64", "arm64-v8a"]
+ram_mb = 3072
+
+[[profile]]
+id = "tablet"
+title = "Tablet"
+kind = "tablet"
+width = 1600
+height = 2560
+density = 320
+min_api = 34
+abis = ["x86_64", "arm64-v8a"]
+ram_mb = 3072
