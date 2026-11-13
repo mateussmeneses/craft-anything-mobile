@@ -696,15 +696,20 @@ fn adb_devices_find(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
     let adb = adb_for(ctx)?;
     let devices = adb.devices()?;
     let online = devices.iter().filter(|d| d.is_online()).count();
-    // This computer's default device (adb_default_device_set), and whether it is online by its
-    // serial; an emulator kept by name isn't matched here (adb_emulators_list knows its serial).
+    // This computer's default device (adb_default_device_set), and whether it is online: by its
+    // serial, or, for an emulator kept by name, by the virtual device a running emulator says it
+    // runs (asked only then, since each emulator's console is one more question).
     let default = crate::android_device::load(&crate::android_device::path_in(&ctx.session.config_dir())).file.default;
-    let default_online = default.as_ref().is_some_and(|d| devices.iter().any(|x| x.is_online() && x.serial == d.text()));
+    let default_online = default.as_ref().is_some_and(|d| {
+        devices.iter().any(|x| x.is_online() && x.serial == d.text())
+            || (matches!(d, crate::android_device::DeviceRef::Avd(_))
+                && super::emulator_tools::seen_now(ctx).is_ok_and(|seen| crate::android_device::default_online(&seen, d)))
+    });
     let pick = if p.for_check { Some(check_pick(ctx, default.as_ref())?) } else { None };
     let summary = format!("{} device(s) attached, {online} online.", devices.len());
     let locations: Vec<Location> = devices.iter().map(|d| Location::new("device", &d.serial).with_label(d.state.clone())).collect();
     let e = EvidenceBuilder::new("adb_devices_find", Subject { kind: "engine".into(), sha256: None, name: Some("adb".into()) }, device_env(ctx))
-        .params(json!({}))
+        .params(json!({"for_check": p.for_check}))
         .authority(Authority::OutsideService)
         .confidence(Confidence::Observed)
         .result(json!({"devices": devices, "count": devices.len(), "online": online, "default": default, "default_online": default_online, "check_pick": pick}))

@@ -254,6 +254,12 @@ pub fn choose_for_check(seen: &Seen, default: Option<&DeviceRef>) -> Chosen {
     chosen
 }
 
+/// Whether the default device is online now: a listed serial that is ready, or a virtual device a
+/// running emulator says it runs.
+pub fn default_online(seen: &Seen, default: &DeviceRef) -> bool {
+    matches!(resolve(seen, default, How::Default), Ok(Choice::Use { .. }))
+}
+
 // ------------------------------------------------------------------------------------------------
 // The devices file
 
@@ -392,6 +398,18 @@ mod tests {
     fn avd(s: &str) -> DeviceRef {
         DeviceRef::Avd(s.into())
     }
+    #[test]
+    fn a_default_kept_by_name_is_online_when_an_emulator_runs_it() {
+        let up = seen(vec![dev("emulator-5554", "device", "sdk")], &[("emulator-5554", "Medium_Phone")], &["Medium_Phone"]);
+        assert!(default_online(&up, &avd("Medium_Phone")));
+        assert!(default_online(&up, &serial("emulator-5554")));
+        assert!(!default_online(&up, &avd("Tablet")));
+        // Known but not running, and running but still booting, are not online.
+        assert!(!default_online(&seen(vec![], &[], &["Medium_Phone"]), &avd("Medium_Phone")));
+        let booting = seen(vec![dev("emulator-5554", "offline", "sdk")], &[("emulator-5554", "Medium_Phone")], &["Medium_Phone"]);
+        assert!(!default_online(&booting, &avd("Medium_Phone")));
+    }
+
     fn seen(devices: Vec<Device>, running: &[(&str, &str)], avds: &[&str]) -> Seen {
         Seen {
             devices,

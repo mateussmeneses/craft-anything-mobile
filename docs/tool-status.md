@@ -172,9 +172,19 @@ Fixed:
   consent and stop of a phone's serial were refused; after stop adb listed no device and no
   emulator process was left. Not checked: macOS, Linux, a windowed start, `cold_boot`, a boot
   that outlasts the wait, or an emulator that fails to start (fixtures cover the refusals only).
-- Default device (`adb_default_device_set`): **New, unverified**. Unit-tested only: the devices
-  file round trip, a newer file left alone, an unreadable one moved aside, emulator serials and
-  bad names refused. Not run against a real device or by the app.
+- Default device (`adb_default_device_set`): **New**. Run on Windows 11 on 2026-11-13 from the
+  CLI: setting `Medium_Phone` wrote `android-devices.json` (version 1, `{"avd": …}`), Play then
+  used it (`device_how: default`), `adb_devices_find` showed it, a name with a space was refused
+  and `clear` removed it. Not checked: a phone's serial, or the app.
+- Play on Android (`project_play`, `on: "android"`): **New**. Run on Windows 11 on 2026-11-13
+  from the CLI (output to a file, not a pipe) with a real Views debug APK in a project's app/:
+  with nothing online it started `Medium_Phone` with a window, installed and started the app in
+  27 s and returned, the app's activity in front; run again it reinstalled on the only device
+  online; with `device: Medium_Phone` and `no_window` (what `InstallCheck` sends) it used the
+  running emulator; without consent and with an unknown player it was refused before anything
+  ran. `adb_devices_find` with `for_check` named the virtual device to start, then the running
+  one. Not checked: several devices, the restart of an emulator started without a window, a
+  failed install, a phone, the desktop app (no button yet), or a rebuild run's `InstallCheck`.
 - Android SDK check (`engines_android_sdk_check`): **New**. Run on Windows 11 against a real SDK
   found through the adb on PATH: 4 build tools, 4 platforms, 2 NDKs, command-line tools, emulator,
   one system image and one virtual device, each matching the folders and `config.ini` on disk.

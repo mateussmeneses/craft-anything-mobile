@@ -55,7 +55,7 @@ The project should be easy to fork and bend. New features land behind a seam, no
 | M3 Engine depth | More tools, and the known partial ones | open | 314 tools; the open lane |
 | M4 Release | Packaging, signing, a managed tier | maintainers | v0.3.0 released, signed, on every platform; a macOS CLI question and the managed tier remain |
 | M5 Works for real people | What people hit now that the project is public | maintainers | Comes first |
-| M6 Mobile apps | Phone apps get study → build → check → refine: Android first, then iOS | maintainers | Static Android reading, the adb tools and virtual-device start/stop exist; there is an `android` kind, Android stacks and an on-device install check; Play on a device, other stacks built for real and a physical phone are still open |
+| M6 Mobile apps | Phone apps get study → build → check → refine: Android first, then iOS | maintainers | Static Android reading, the adb tools and virtual-device start/stop exist; there is an `android` kind, Android stacks, an on-device install check and Play on a device (from the CLI; no button in the app yet); other stacks built for real and a physical phone are still open |
 
 ## Open work
 
@@ -2795,8 +2795,21 @@ Owner: maintainers · Status: in progress
       its `build` script (`react-native build-android --mode=debug`); .NET MAUI with the .NET one
 - [ ] Build each stack once for real through the build check (Flutter has, in a live run; the
       others need Gradle, Node and .NET set up here)
-- [ ] Its launch recipe: install the built APK on the chosen device and start it (Play), which
-      needs a device choice a recipe of one command can't carry
+- [x] Its launch recipe: install the built APK on the chosen device and start it (Play), which
+      needs a device choice a recipe of one command can't carry (`project_play` picks a player
+      from a registry, `play::Player`; the Android one installs the debug APK and starts it on the
+      device `android_device::choose` names: the one asked for, this computer's default
+      (`adb_default_device_set`, kept in `android-devices.json`), the only one online, or the first
+      virtual device, started with a window; `InstallCheck` and `ScreenCheck` use the same code
+      through a rule that never asks. Run on the emulator on 2026-11-13 from the CLI: none online,
+      one online, a device named, a default set and cleared)
+- [ ] Play on Android in the desktop app: the "Run on Android" button calls `project_play` with
+      `on: "android"`, a picker for `device_choice_needed` with "use this one next time", and
+      toasts that name the device (strings in every catalog)
+- [ ] Play on Android, still to run live: several devices online (`device_choice_needed`), an
+      emulator a check started without a window started again with one (same desktop session), an
+      install refused for another signature (`install_failure`), a phone, and a rebuild run whose
+      `InstallCheck` goes through Play
 - [x] `InstallCheck`: the built APK installs, starts and stays up; a crash in the log fails it with
       the stack trace as the note (stays up = still on screen after 6 s, read with `adb_ui_show`; the
       crash log is read only where Deep mode allows `adb_log_read`)
