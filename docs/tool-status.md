@@ -172,6 +172,9 @@ Fixed:
   consent and stop of a phone's serial were refused; after stop adb listed no device and no
   emulator process was left. Not checked: macOS, Linux, a windowed start, `cold_boot`, a boot
   that outlasts the wait, or an emulator that fails to start (fixtures cover the refusals only).
+- Default device (`adb_default_device_set`): **New, unverified**. Unit-tested only: the devices
+  file round trip, a newer file left alone, an unreadable one moved aside, emulator serials and
+  bad names refused. Not run against a real device or by the app.
 - Android SDK check (`engines_android_sdk_check`): **New**. Run on Windows 11 against a real SDK
   found through the adb on PATH: 4 build tools, 4 platforms, 2 NDKs, command-line tools, emulator,
   one system image and one virtual device, each matching the folders and `config.ini` on disk.

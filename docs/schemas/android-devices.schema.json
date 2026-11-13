@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DevicesFile",
+  "description": "What `android-devices.json` holds.",
+  "type": "object",
+  "properties": {
+    "default": {
+      "description": "The device Play and the checks use when none is named.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DeviceRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "$defs": {
+    "DeviceRef": {
+      "description": "A device as a person names it: an adb serial (a phone, `R58M…`, or `host:port`) or a virtual\ndevice's (AVD's) name. An emulator is kept by name, since `emulator-5554` changes from boot to boot.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "serial": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "serial"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "avd": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "avd"
+          ]
+        }
+      ]
+    }
+  }
+}

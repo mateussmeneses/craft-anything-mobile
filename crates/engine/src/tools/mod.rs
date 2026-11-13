@@ -41,6 +41,8 @@ pub mod android_bundle_tools;
 pub mod android_sdk_tools;
 // Android virtual devices: list, start and stop.
 pub mod emulator_tools;
+// This computer's default Android device, for Play and the Android checks.
+pub mod android_device_tools;
 // The controls on a device's screen.
 pub mod adb_ui_tools;
 // Taps, typed text, keys and swipes on a device's screen.
@@ -161,6 +163,7 @@ pub fn all() -> Vec<crate::ToolSpec> {
     v.extend(android_bundle_tools::specs());
     v.extend(android_sdk_tools::specs());
     v.extend(emulator_tools::specs());
+    v.extend(android_device_tools::specs());
     v.extend(adb_ui_tools::specs());
     v.extend(adb_input_tools::specs());
     v.extend(adb_walkthrough_tools::specs());

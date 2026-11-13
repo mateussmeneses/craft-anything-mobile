@@ -674,13 +674,17 @@ fn adb_devices_find(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
     let adb = adb_for(ctx)?;
     let devices = adb.devices()?;
     let online = devices.iter().filter(|d| d.is_online()).count();
+    // This computer's default device (adb_default_device_set), and whether it is online by its
+    // serial; an emulator kept by name isn't matched here (adb_emulators_list knows its serial).
+    let default = crate::android_device::load(&crate::android_device::path_in(&ctx.session.config_dir())).file.default;
+    let default_online = default.as_ref().is_some_and(|d| devices.iter().any(|x| x.is_online() && x.serial == d.text()));
     let summary = format!("{} device(s) attached, {online} online.", devices.len());
     let locations: Vec<Location> = devices.iter().map(|d| Location::new("device", &d.serial).with_label(d.state.clone())).collect();
     let e = EvidenceBuilder::new("adb_devices_find", Subject { kind: "engine".into(), sha256: None, name: Some("adb".into()) }, device_env(ctx))
         .params(json!({}))
         .authority(Authority::OutsideService)
         .confidence(Confidence::Observed)
-        .result(json!({"devices": devices, "count": devices.len(), "online": online}))
+        .result(json!({"devices": devices, "count": devices.len(), "online": online, "default": default, "default_online": default_online}))
         .summary(summary)
         .locations(locations)
         .coverage(Coverage::complete(devices.len() as u64))

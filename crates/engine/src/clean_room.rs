@@ -124,6 +124,7 @@ pub const TOOLS: &[&str] = &[
     "adb_emulators_list",
     "adb_emulator_start",
     "adb_emulator_stop",
+    "adb_default_device_set",
     "adb_device_show",
     "adb_display_show",
     "adb_screenshot_take",
