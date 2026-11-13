@@ -3,6 +3,7 @@
 //! a debug APK, and checked by building.
 
 use super::*;
+use crate::rebuild::output::{apk_package, debug_apk};
 use craft_anything_engine::workspace::Claim;
 
 pub struct AndroidKind;
@@ -104,55 +105,8 @@ impl TargetKind for AndroidKind {
     }
 }
 
-/// Deepest folder level searched for the built APK under app/.
-const MAX_DEPTH: usize = 10;
-/// Most folder entries looked at while searching.
-const MAX_ENTRIES: usize = 50_000;
 /// How long the app is given after it starts before the screen is read.
 const SETTLE: Duration = Duration::from_secs(6);
-
-/// The newest debug APK a build left under `app` (`…/build/outputs/…/debug/*.apk`, or Flutter's
-/// `flutter-apk/app-debug.apk` or `app-profile.apk`), searched without following links and with limits.
-pub fn find_debug_apk(app: &Path) -> Option<PathBuf> {
-    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    let mut stack = vec![(app.to_path_buf(), 0usize)];
-    let mut seen = 0usize;
-    while let Some((dir, depth)) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-        for e in entries.flatten() {
-            seen += 1;
-            if seen > MAX_ENTRIES {
-                return best.map(|b| b.1);
-            }
-            let Ok(kind) = e.file_type() else { continue };
-            let path = e.path();
-            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
-            if kind.is_dir() && depth < MAX_DEPTH && !matches!(name.as_str(), ".git" | ".gradle" | "node_modules" | ".dart_tool" | "intermediates" | "tmp") {
-                stack.push((path, depth + 1));
-            } else if kind.is_file() && name.ends_with(".apk") {
-                let p = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
-                let debug =
-                    p.contains("/outputs/") && (p.contains("/debug/") || name.contains("debug") || (p.contains("/flutter-apk/") && name == "app-profile.apk"));
-                if debug {
-                    let at = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
-                    if best.as_ref().is_none_or(|(t, _)| at > *t) {
-                        best = Some((at, path));
-                    }
-                }
-            }
-        }
-    }
-    best.map(|b| b.1)
-}
-
-/// The package name an APK's manifest gives.
-pub fn apk_package(apk: &[u8]) -> Option<String> {
-    use craft_anything_formats::{axml, zip};
-    let z = zip::parse(apk, 200_000).ok()?;
-    let m = z.entries.iter().find(|e| e.name == "AndroidManifest.xml")?;
-    let doc = axml::parse(&zip::read_entry(apk, m, 16 << 20).ok()?).ok()?;
-    axml::manifest(&doc).package.filter(|p| !p.is_empty())
-}
 
 /// The first device adb lists as ready, from `adb_devices_find`'s result.
 fn first_online(devices: &Value) -> Option<String> {
@@ -244,7 +198,7 @@ impl Check for ScreenCheck {
             r.unknowns.push(note);
             r
         };
-        let Some(apk) = find_debug_apk(&cx.ws.app_dir()) else {
+        let Some(apk) = debug_apk(&cx.ws.app_dir()) else {
             return Ok(unknown("The screens weren't compared: no debug APK was built.".into()));
         };
         let Some(package) = std::fs::read(&apk).ok().and_then(|b| apk_package(&b)) else {
@@ -339,7 +293,7 @@ impl Check for InstallCheck {
             r.unknowns.push(note);
             r
         };
-        let Some(apk) = find_debug_apk(&cx.ws.app_dir()) else {
+        let Some(apk) = debug_apk(&cx.ws.app_dir()) else {
             return Ok(CheckResult::new(
                 id,
                 round,
@@ -446,33 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn the_built_apk_is_found_where_builds_put_it() {
-        let d = tempfile::tempdir().unwrap();
-        assert_eq!(find_debug_apk(d.path()), None);
-        let put = |rel: &str| {
-            let p = d.path().join(rel);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(&p, b"apk").unwrap();
-            p
-        };
-        put("app/build/intermediates/apk/debug/app-debug.apk");
-        put("app/build/outputs/apk/release/app-release.apk");
-        put("libs/other.apk");
-        assert_eq!(find_debug_apk(d.path()), None, "only a build's debug output counts");
-        let want = put("app/build/outputs/apk/debug/app-debug.apk");
-        assert_eq!(find_debug_apk(d.path()), Some(want));
-        let flutter = tempfile::tempdir().unwrap();
-        let p = flutter.path().join("build/app/outputs/flutter-apk/app-debug.apk");
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(&p, b"apk").unwrap();
-        assert_eq!(find_debug_apk(flutter.path()), Some(p));
-    }
-
-    #[test]
-    fn the_package_device_and_crash_are_read_from_results() {
-        let apk = craft_anything_testkit::android::notes_apk();
-        assert!(apk_package(&apk).is_some_and(|p| p.contains('.')));
-        assert_eq!(apk_package(b"not an apk"), None);
+    fn the_device_and_crash_are_read_from_results() {
         let devices = json!({"devices": [{"serial": "x", "state": "offline"}, {"serial": "emulator-5554", "state": "device"}]});
         assert_eq!(first_online(&devices).as_deref(), Some("emulator-5554"));
         assert_eq!(first_online(&json!({"devices": []})), None);
