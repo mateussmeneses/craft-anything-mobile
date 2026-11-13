@@ -19,6 +19,7 @@ pub mod journal;
 pub mod mechanics;
 pub mod outputs;
 pub mod pins;
+pub mod play;
 pub mod plugins;
 pub mod project;
 pub mod questions;

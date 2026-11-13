@@ -483,6 +483,10 @@ pub struct PlayParams {
     /// Start another copy even if one is running.
     #[serde(default)]
     pub another: bool,
+    /// Where to play: a player id (`computer`). Default: the first player that finds something
+    /// to start.
+    #[serde(default)]
+    pub on: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -615,7 +619,22 @@ fn project_play(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErro
     if crate::outputs::site_dir(&app).is_some() {
         return Err(ToolError::new(ErrorCode::NotSupported, "This project made a website.").with_remediation("Use project_preview to see it."));
     }
-    let out = super::pin_tools::start(ctx, &app, &crate::pins::play_log(&ws), p.another, "the finished project")?;
+    let named = p.on.as_deref().map(crate::play::named).transpose()?;
+    let player = match named {
+        Some(player) => {
+            if !player.finds(&app, super::pin_tools::godot(ctx).as_deref()) {
+                return Err(crate::play::nothing_to_start(player.id()));
+            }
+            player
+        }
+        // Nothing found: this computer's player says what's missing, as Play always has.
+        None => crate::play::found(&app, super::pin_tools::godot(ctx).as_deref()).and_then(crate::play::by_id).unwrap_or(&crate::play::Computer),
+    };
+    let req = crate::play::PlayRequest { another: p.another, ..Default::default() };
+    let mut out = player.play(ctx, &ws, &req)?;
+    if let Value::Object(map) = &mut out {
+        map.insert("on".into(), json!(player.id()));
+    }
     Ok(ToolOutput::Value(out))
 }
 
@@ -789,6 +808,20 @@ mod tests {
         assert!(err.remediation.unwrap_or_default().contains("project_preview"));
         // Playing runs the builder's code: refused without consent.
         assert!(e.call("project_play", json!({"project": ws.root}), CallOptions::new(Caller::Mcp)).is_err());
+    }
+
+    /// `on` names a player: an unknown one lists them, a known one with nothing to start says so.
+    #[test]
+    fn play_on_a_named_player_or_an_unknown_one() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Game", "A game", TargetRef::None).unwrap();
+        let e = Engine::new(crate::testing::session());
+        let granted = || CallOptions::new(Caller::Cli).with_consent(crate::Consent::Granted);
+        let err = e.call("project_play", json!({"project": ws.root, "on": "nope"}), granted()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadInput);
+        assert!(err.message.contains("computer"), "{}", err.message);
+        let err = e.call("project_play", json!({"project": ws.root, "on": "computer"}), granted()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
     }
 
     #[test]
