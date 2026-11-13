@@ -361,6 +361,8 @@ struct Pkg {
     /// For an App Bundle: the module read (`base/`). Its files sit under it, and its XML is
     /// protocol buffers, not binary XML.
     module: Option<String>,
+    /// What this read leaves out of a bundle or set, as a typed limitation (code, text).
+    scope: Option<(&'static str, String)>,
 }
 
 fn is_root_dex(name: &str) -> bool {
@@ -369,7 +371,7 @@ fn is_root_dex(name: &str) -> bool {
 
 fn load_pkg(ctx: &Ctx<'_>, path: Option<&str>, want_dex: bool) -> Result<Pkg, ToolError> {
     let input = static_input::load(ctx, path, MAX_APK)?;
-    let mut pkg = Pkg { zip: None, dexes: Vec::new(), warnings: Vec::new(), input, module: None };
+    let mut pkg = Pkg { zip: None, dexes: Vec::new(), warnings: Vec::new(), input, module: None, scope: None };
     if dex::is_dex(&pkg.input.bytes) {
         pkg.dexes.push((pkg.input.name.clone(), pkg.input.bytes.to_vec()));
         return Ok(pkg);
@@ -391,7 +393,10 @@ fn load_pkg(ctx: &Ctx<'_>, path: Option<&str>, want_dex: bool) -> Result<Pkg, To
     }
     // An App Bundle: read its base module.
     if !z.entries.iter().any(|e| e.name == "AndroidManifest.xml") && z.entries.iter().any(|e| e.name == "base/manifest/AndroidManifest.xml") {
-        pkg.warnings.push("read the base module of this App Bundle; feature modules, native code and signing are not read here".into());
+        pkg.scope = Some((
+            "bundle_base_module_only",
+            "Read the base module of this App Bundle; its other modules (feature modules, configuration splits) are not read here. Native code and assets are counted in the base module only.".into(),
+        ));
         pkg.module = Some("base/".into());
     }
     let dex_dir = if pkg.module.is_some() { "base/dex/" } else { "" };
@@ -463,6 +468,7 @@ fn parse_xml(pkg: &Pkg, bytes: &[u8]) -> Result<axml::Document, craft_anything_f
 fn parse_dexes(pkg: &Pkg) -> (Vec<(&str, dex::Dex<'_>)>, Vec<String>) {
     let mut out = Vec::new();
     let mut warnings = pkg.warnings.clone();
+    warnings.extend(pkg.scope.iter().map(|(_, t)| t.clone()));
     for (name, bytes) in &pkg.dexes {
         match dex::parse(bytes) {
             Ok(d) => {
@@ -645,18 +651,23 @@ fn android_package_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, 
         })
         .collect();
     // Native libraries
+    // A bundle keeps them under its module (`base/lib/<abi>/`, `base/assets/`).
+    let root = pkg.module.as_deref().unwrap_or("");
     let mut libs: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for e in z.entries.iter().filter(|e| !e.is_dir) {
-        let parts: Vec<&str> = e.name.split('/').collect();
+        let Some(rel) = e.name.strip_prefix(root) else { continue };
+        let parts: Vec<&str> = rel.split('/').collect();
         if let ["lib", abi, file] = parts.as_slice()
             && libs.values().map(Vec::len).sum::<usize>() < 10_000
         {
             libs.entry((*abi).to_string()).or_default().push(json!({"name": file, "bytes": e.uncompressed_size, "compression": e.method_name()}));
         }
     }
-    let assets = z.entries.iter().filter(|e| e.name.starts_with("assets/")).count();
-    let res_files = z.entries.iter().filter(|e| e.name.starts_with("res/")).count();
-    let has_arsc = z.entries.iter().any(|e| e.name == "resources.arsc");
+    let (assets_dir, res_dir) = (format!("{root}assets/"), format!("{root}res/"));
+    let assets = z.entries.iter().filter(|e| e.name.starts_with(&assets_dir)).count();
+    let res_files = z.entries.iter().filter(|e| e.name.starts_with(&res_dir)).count();
+    let table_names = [format!("{root}resources.arsc"), format!("{root}resources.pb")];
+    let has_arsc = z.entries.iter().any(|e| table_names.contains(&e.name));
     let m = manifest.clone().unwrap_or_default();
     let sig_desc = if schemes.is_empty() {
         "no signature found".to_string()
@@ -678,6 +689,7 @@ fn android_package_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, 
         if libs.is_empty() { "no ABI".to_string() } else { libs.keys().cloned().collect::<Vec<_>>().join(", ") },
         sig_desc,
     );
+    lims.extend(pkg.scope.iter().map(|(code, text)| Limitation::new(*code, text.clone())));
     lims.extend(warn_lims(&warnings));
     let b = ev(ctx, "android_package_show", &pkg, json!({"path": p.path, "include_manifest_xml": p.include_manifest_xml}))
         .result(json!({
@@ -1245,7 +1257,11 @@ fn android_resources_read(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     let p: ResourcesParams = parse_params(params)?;
     let input = static_input::load(ctx, p.path.as_deref(), MAX_APK)?;
     let is_arsc = input.bytes.get(..2) == Some(&[0x02, 0x00]);
-    let pkg = if is_arsc { Pkg { input, zip: None, dexes: Vec::new(), warnings: Vec::new(), module: None } } else { load_pkg(ctx, p.path.as_deref(), false)? };
+    let pkg = if is_arsc {
+        Pkg { input, zip: None, dexes: Vec::new(), warnings: Vec::new(), module: None, scope: None }
+    } else {
+        load_pkg(ctx, p.path.as_deref(), false)?
+    };
     let table_file = if pkg.module.is_some() { "resources.pb" } else { "resources.arsc" };
     let arsc_bytes: Vec<u8> = if is_arsc {
         pkg.input.bytes.to_vec()
@@ -1518,6 +1534,37 @@ mod tests {
         assert_eq!(c["result"]["total"], single["result"]["total"]);
         let r = call(&e, "android_resources_read", json!({"path": path}));
         assert!(r["result"].to_string().contains("Bundle Notes"), "{}", r["result"]);
+    }
+
+    #[test]
+    fn an_app_bundles_package_facts_count_its_base_modules_libraries_and_assets() {
+        use craft_anything_testkit::electron::zip_stored;
+        let aab = zip_stored(&[
+            ("base/manifest/AndroidManifest.xml", b""),
+            ("base/lib/arm64-v8a/libapp.so", b"x"),
+            ("base/lib/x86_64/libapp.so", b"x"),
+            ("base/lib/armeabi-v7a/libapp.so", b"x"),
+            ("base/assets/a.txt", b"1"),
+            ("base/assets/b.txt", b"2"),
+            ("base/resources.pb", b""),
+            ("lib/x86/not-in-a-module.so", b"x"),
+            ("BundleConfig.pb", b""),
+        ]);
+        let path = craft_anything_testkit::temp_file("libs.aab", &aab).to_string_lossy().into_owned();
+        let e = Engine::new(crate::testing::session());
+        let v = call(&e, "android_package_show", json!({"path": path}));
+        let r = &v["result"];
+        let abis: Vec<&str> = r["native_libraries"].as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();
+        assert_eq!(abis, ["arm64-v8a", "armeabi-v7a", "x86_64"], "{}", v["summary"]);
+        assert_eq!((r["assets"].as_u64(), r["has_resources_arsc"].as_bool()), (Some(2), Some(true)));
+        let codes: Vec<&str> = v["limitations"].as_array().unwrap().iter().filter_map(|l| l["code"].as_str()).collect();
+        assert!(codes.contains(&"bundle_base_module_only"), "{codes:?}");
+        // Agrees with android_bundle_show on the same file.
+        let b = call(&e, "android_bundle_show", json!({"path": path}));
+        assert_eq!(b["result"]["parts"][0]["assets"], r["assets"]);
+        assert_eq!(b["result"]["parts"][0]["abis"].as_array().map(Vec::len), Some(3));
+        let text = v["limitations"].to_string();
+        assert!(!text.contains("native code and signing are not read"), "{text}");
     }
 
     #[test]

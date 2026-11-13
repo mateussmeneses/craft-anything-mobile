@@ -2726,7 +2726,7 @@ Owner: open · Status: in progress
       `android_package_show`
 - [x] Check `android_bundle_show` on a real `.aab` (Flutter `build appbundle`, 2026-11-13: 3 ABIs, 8 assets, 3 components)
 - [ ] Check `android_bundle_show` on a real `.xapk`
-- [ ] `android_package_show` on an `.aab` says "native code for no ABI" and 0 assets, while
+- [x] `android_package_show` on an `.aab` says "native code for no ABI" and 0 assets, while
       `android_bundle_show` finds 3 ABIs and 8 assets in the same file, and it warns that signing
       is not read although it reports a verified v1 signature; make the two agree
 - [x] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
