@@ -135,9 +135,16 @@ Fixed:
   Run on that `.aab` on 2026-11-13 in Deep mode. `android_resources_read` gave 1 package and 104
   values in the default locale. `android_package_show` read the manifest (SDK 24-36, 1
   permission, 3 components), the DEX file (576 classes, 3,921 methods, checksum fine) and a v1
-  signature (verified, debug certificate), but **Partial**: its summary says "native code for no
-  ABI" and 0 assets where `android_bundle_show` finds 3 ABIs and 8 assets, and it warns that
-  signing is not read although it read it (ROADMAP R6.2). Not run in Clean room.
+  signature (verified, debug certificate), but its summary said "native code for no
+  ABI" and 0 assets where `android_bundle_show` finds 3 ABIs and 8 assets, and it warned that
+  signing is not read although it read it. Fixed and run again the same day on a release bundle
+  of the same app: 3 ABIs (two libraries each) and 8 assets, as `android_bundle_show` says, and
+  the warning names only the other modules. `android_resources_read` on that bundle and on the
+  same app's release APK agree on the qualifiers (`default`, `night`, `mdpi` to `xxxhdpi`) and on
+  each style's parent, item names and kind of value; the bundle shows names where the APK has
+  ids, and lists the resources the APK's shrinking removed. Not checked on a real file: arrays
+  and plurals (the app has none), other qualifiers, a bundle with feature modules. Not run in
+  Clean room.
 - Replay a walkthrough (`adb_walkthrough_replay`): **New**. On the emulator above, a 3-step walk
   in Settings (swipe, wait, back) recorded, then replayed from the same screen: 0 of 3 captures
   differ (same app and controls; pictures not byte-identical after the first). Replayed from the

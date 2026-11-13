@@ -2724,9 +2724,12 @@ Owner: open · Status: in progress
       configuration qualifiers; styles, arrays and plurals listed without their items)
 - [x] A bundle's other configuration qualifiers (density, night mode, screen size, SDK version…), the items of its styles, arrays and plurals, and its native libraries in
       `android_package_show`
-- [ ] A bundle's attribute and styleable definitions are still listed without their items, and
-      the new qualifier and style reading is checked against synthetic protocol buffers only:
-      run `android_resources_read` on a real `.aab` and compare it with the same app's APK
+- [ ] A bundle's attribute and styleable definitions are still listed without their items
+- [x] Run `android_resources_read` on a real `.aab` and compare it with the same app's APK
+      (2026-11-13, a Flutter release bundle and APK: the same qualifiers, style parents and item
+      names; a reference to a theme attribute was shown as a plain reference, fixed)
+- [ ] A bundle's arrays and plurals are checked against synthetic protocol buffers only (the
+      Flutter app has none): compare them on a real `.aab` that has some
 - [x] Check `android_bundle_show` on a real `.aab` (Flutter `build appbundle`, 2026-11-13: 3 ABIs, 8 assets, 3 components)
 - [ ] Check `android_bundle_show` on a real `.xapk`
 - [x] `android_package_show` on an `.aab` says "native code for no ABI" and 0 assets, while

@@ -89,12 +89,15 @@ fn message<'a>(fs: &[(u64, Field<'a>)], num: u64) -> Option<&'a [u8]> {
     })
 }
 
-/// A `Reference { type = 1; id = 2; name = 3 }`: how it is shown (`@name` or `@0x…`) and its id.
-fn reference(data: &[u8]) -> Result<(String, u32), FormatError> {
+/// A `Reference { type = 1; id = 2; name = 3 }`: how it is shown (`@name` or `@0x…`; `?` for one
+/// to a theme attribute, type 1), its id, and whether it is a theme attribute.
+fn reference(data: &[u8]) -> Result<(String, u32, bool), FormatError> {
     let rf = fields(data)?;
     let id = varint_field(&rf, 2).and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
-    let shown = string_field(&rf, 3).map(|n| format!("@{n}")).unwrap_or_else(|| format!("@{id:#010x}"));
-    Ok((shown, id))
+    let attribute = varint_field(&rf, 1) == Some(1);
+    let mark = if attribute { '?' } else { '@' };
+    let shown = string_field(&rf, 3).map(|n| format!("{mark}{n}")).unwrap_or_else(|| format!("{mark}{id:#010x}"));
+    Ok((shown, id, attribute))
 }
 
 /// A compiled value (`Item`): its text and the binary-XML type it matches.
@@ -103,8 +106,8 @@ fn item(data: &[u8]) -> Result<(String, ResValue), FormatError> {
     let none = ResValue { data_type: 0, data: 0 };
     // Reference { type = 1; id = 2; name = 3 }
     if let Some(r) = message(&fs, 1) {
-        let (shown, id) = reference(r)?;
-        return Ok((shown, ResValue { data_type: 0x01, data: id }));
+        let (shown, id, attribute) = reference(r)?;
+        return Ok((shown, ResValue { data_type: if attribute { 0x02 } else { 0x01 }, data: id }));
     }
     // String { value = 1 } and RawString { value = 1 }
     for num in [2, 3] {
@@ -333,13 +336,16 @@ fn compound_items(compound: &[u8], budget: &mut usize) -> Result<Option<Bag>, Fo
         // Style { parent = 1 (Reference); parent_source = 2; entry = 3 }
         // Entry { source = 1; comment = 2; key = 3 (Reference); item = 4 }
         let sf = fields(style)?;
-        parent =
-            message(&sf, 1).map(reference).transpose()?.map(|(shown, id)| if id != 0 { format!("@{id:#010x}") } else { shown }).filter(|p| p != "@0x00000000");
+        parent = message(&sf, 1)
+            .map(reference)
+            .transpose()?
+            .map(|(shown, id, _)| if id != 0 { format!("@{id:#010x}") } else { shown })
+            .filter(|p| p != "@0x00000000");
         for (n, f) in &sf {
             let (3, Field::Bytes(eb)) = (n, f) else { continue };
             let ef = fields(eb)?;
             let name = match message(&ef, 3).map(reference).transpose()? {
-                Some((shown, id)) => {
+                Some((shown, id, _)) => {
                     if id != 0 {
                         format!("@{id:#010x}")
                     } else {
@@ -632,7 +638,18 @@ mod tests {
         let ty = |tid: u64, name: &str, entries: Vec<Vec<u8>>| bytes(3, &[bytes(1, &id(tid)), s(2, name), entries.concat()].concat());
         let compound = |kind: u64, body: Vec<u8>| bytes(5, &bytes(kind, &body));
         // Style { parent = 1; entry = 3 { key = 3; item = 4 (a reference) } }
-        let style = compound(2, [bytes(1, &vf(2, 0x7f0d_0001)), bytes(3, &[bytes(3, &vf(2, 0x0101_0098)), bytes(4, &refmsg(0x7f06_0000))].concat())].concat());
+        // The second entry's item points at a theme attribute (Reference.type = 1), by name, as a
+        // real bundle's `?android:attr/colorBackground` does.
+        let attr_ref = bytes(1, &[vf(1, 1), vf(2, 0x0101_0031), s(3, "android:attr/colorBackground")].concat());
+        let style = compound(
+            2,
+            [
+                bytes(1, &vf(2, 0x7f0d_0001)),
+                bytes(3, &[bytes(3, &vf(2, 0x0101_0098)), bytes(4, &refmsg(0x7f06_0000))].concat()),
+                bytes(3, &[bytes(3, &vf(2, 0x0101_0054)), bytes(4, &attr_ref)].concat()),
+            ]
+            .concat(),
+        );
         // Array { element = 1 { item = 3 } }
         let array = compound(4, [bytes(1, &bytes(3, &str_item("a"))), bytes(1, &bytes(3, &str_item("b")))].concat());
         // Plural { entry = 1 { arity = 3 (ONE = 1, OTHER = 5); item = 4 } }
@@ -669,6 +686,11 @@ mod tests {
         let theme = by("Theme");
         assert_eq!((theme.parent.as_deref(), theme.value.as_deref(), theme.value_type), (Some("@0x7f0d0001"), None, None));
         assert_eq!((theme.bag[0].name.as_str(), theme.bag[0].value.as_str(), theme.bag[0].value_type), ("@0x01010098", "@0x7f060000", "reference"));
+        // A theme attribute is `?…` and typed as one, as the binary table of the same app says.
+        assert_eq!(
+            (theme.bag[1].name.as_str(), theme.bag[1].value.as_str(), theme.bag[1].value_type),
+            ("@0x01010054", "?android:attr/colorBackground", "attribute")
+        );
         let names: Vec<(&str, &str)> = by("names").bag.iter().map(|b| (b.name.as_str(), b.value.as_str())).collect();
         assert_eq!(names, vec![("@0x00000000", "a"), ("@0x00000000", "b")]);
         let files: Vec<(&str, &str)> = by("files").bag.iter().map(|b| (b.name.as_str(), b.value.as_str())).collect();
