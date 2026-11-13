@@ -108,9 +108,38 @@ impl TargetKind for AndroidKind {
 /// How long the app is given after it starts before the screen is read.
 const SETTLE: Duration = Duration::from_secs(6);
 
-/// The first device adb lists as ready, from `adb_devices_find`'s result.
-fn first_online(devices: &Value) -> Option<String> {
-    devices.get("devices")?.as_array()?.iter().find(|d| d.get("state").and_then(Value::as_str) == Some("device"))?.get("serial")?.as_str().map(str::to_string)
+/// The device a check uses, from `adb_devices_find`'s `check_pick` (asked with `for_check`): the
+/// engine's rule for checks, which never stops a build to ask.
+#[derive(Debug, PartialEq, Eq)]
+enum Pick {
+    /// This device is online.
+    Use(String),
+    /// Nothing is online: this virtual device can be started.
+    Start(String),
+    /// No device can be used, and why.
+    None(String),
+}
+
+fn check_pick(devices: &Value) -> Pick {
+    let pick = devices.get("check_pick").unwrap_or(&Value::Null);
+    let text = |k: &str| pick.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+    if let Some(serial) = text("serial") {
+        Pick::Use(serial)
+    } else if let Some(avd) = text("start") {
+        Pick::Start(avd)
+    } else {
+        Pick::None(text("message").unwrap_or_else(|| "no phone or emulator is connected and ready.".to_string()))
+    }
+}
+
+/// What a failed Play says about the build, from the error's typed `step`: the claims it settles,
+/// or `None` when the device (not the build) is why nothing ran.
+fn play_failure(e: &ToolError) -> Option<Vec<Claim>> {
+    match e.details.as_ref().and_then(|d| d.get("step")).and_then(Value::as_str) {
+        Some("install") => Some(vec![Claim::new("The APK installs", false, e.message.clone())]),
+        Some("launch") => Some(vec![Claim::new("The APK installs", true, ""), Claim::new("The app starts", false, e.message.clone())]),
+        _ => None,
+    }
 }
 
 /// The lines of a crash log that are about `package`'s crash, at most 40.
@@ -204,8 +233,9 @@ impl Check for ScreenCheck {
         let Some(package) = std::fs::read(&apk).ok().and_then(|b| apk_package(&b)) else {
             return Ok(unknown("The screens weren't compared: the built APK names no package.".into()));
         };
-        let devices = cx.call("adb_devices_find", json!({})).map(|o| o.to_json().get("result").cloned().unwrap_or(Value::Null));
-        let Some(serial) = devices.ok().as_ref().and_then(first_online) else {
+        // The same device the install check used; this check never starts one.
+        let devices = cx.call("adb_devices_find", json!({"for_check": true})).map(|o| o.to_json().get("result").cloned().unwrap_or(Value::Null));
+        let Some(Pick::Use(serial)) = devices.ok().as_ref().map(check_pick) else {
             return Ok(unknown("The screens weren't compared: no device is connected.".into()));
         };
         // Start the rebuild from its first screen, as the original's walk did.
@@ -251,23 +281,6 @@ impl Check for ScreenCheck {
     }
 }
 
-/// The first virtual device `adb_emulators_list` names, from its result.
-fn first_virtual_device(list: &Value) -> Option<String> {
-    list.get("virtual_devices")?.as_array()?.iter().find_map(|d| d.get("name")?.as_str().map(str::to_string))
-}
-
-/// Start this computer's first virtual device and return its serial, or say why not. It is left
-/// running, so the person can try the app on it.
-fn start_virtual_device(cx: &CheckCx) -> Result<String, String> {
-    let list = cx.call("adb_emulators_list", json!({})).map_err(|e| format!("its virtual devices couldn't be listed ({}).", e.message))?;
-    let name = first_virtual_device(&list.to_json().get("result").cloned().unwrap_or(Value::Null))
-        .ok_or_else(|| "this computer has no virtual device to start (make one in Android Studio's Device Manager).".to_string())?;
-    let started = cx
-        .call("adb_emulator_start", json!({"name": name, "no_window": true}))
-        .map_err(|e| format!("the virtual device {name} didn't start ({}).", e.message))?;
-    started.to_json().pointer("/result/serial").and_then(Value::as_str).map(str::to_string).ok_or_else(|| format!("the virtual device {name} gave no serial."))
-}
-
 /// The built APK installs on a device, starts, and is still on screen a few seconds later.
 pub struct InstallCheck;
 
@@ -305,32 +318,37 @@ impl Check for InstallCheck {
         let Some(package) = apk_package(&bytes) else {
             return Ok(CheckResult::new(id, round, false, format!("{} has no readable AndroidManifest.xml naming a package.", apk.display())));
         };
-        let devices = match cx.call("adb_devices_find", json!({})) {
+        let devices = match cx.call("adb_devices_find", json!({"for_check": true})) {
             Ok(out) => out.to_json().get("result").cloned().unwrap_or(Value::Null),
             Err(e) => return Ok(unknown(format!("The build wasn't tried on a device: {}", e.message))),
         };
-        let serial = match first_online(&devices) {
-            Some(s) => s,
-            // None is connected: start the first virtual device this computer has, without a window.
-            None => match start_virtual_device(cx) {
-                Ok(s) => s,
-                Err(why) => return Ok(unknown(format!("The build wasn't tried on a device: no phone or emulator is connected and ready, and {why}"))),
-            },
+        // A check never asks which device: the engine's rule for checks names one, or the virtual
+        // device to start.
+        let device = match check_pick(&devices) {
+            Pick::Use(device) | Pick::Start(device) => device,
+            Pick::None(why) => return Ok(unknown(format!("The build wasn't tried on a device: {why}"))),
         };
-        let mut claims = Vec::new();
-        if let Err(e) = cx.call("adb_app_install", json!({"serial": serial, "apk_path": apk.display().to_string(), "replace": true})) {
-            claims.push(Claim::new("The APK installs", false, e.message.clone()));
-            let mut r = CheckResult::new(id, round, false, format!("The APK didn't install on {serial}: {}", e.message));
-            r.claims = claims;
-            return Ok(r);
-        }
-        claims.push(Claim::new("The APK installs", true, ""));
-        if let Err(e) = cx.call("adb_app_launch", json!({"serial": serial, "package": package})) {
-            claims.push(Claim::new("The app starts", false, e.message.clone()));
-            let mut r = CheckResult::new(id, round, false, format!("{package} installed but didn't start: {}", e.message));
-            r.claims = claims;
-            return Ok(r);
-        }
+        // Install and start it as Play does. A virtual device is started without a window and left
+        // running, so the person can try the app on it (Play then gives it a window).
+        let played = cx.call("project_play", json!({"project": cx.ws.root.display().to_string(), "on": "android", "device": device, "no_window": true}));
+        let serial = match played {
+            Ok(out) => out.to_json().pointer("/result/serial").and_then(Value::as_str).unwrap_or(&device).to_string(),
+            Err(e) => {
+                let Some(claims) = play_failure(&e) else {
+                    return Ok(unknown(format!("The build wasn't tried on a device: {}", e.message)));
+                };
+                let on = e.details.as_ref().and_then(|d| d.get("serial")).and_then(Value::as_str).unwrap_or(&device).to_string();
+                let note = if claims.len() > 1 {
+                    format!("{package} installed on {on} but didn't start: {}", e.message)
+                } else {
+                    format!("The APK didn't install on {on}: {}", e.message)
+                };
+                let mut r = CheckResult::new(id, round, false, note);
+                r.claims = claims;
+                return Ok(r);
+            }
+        };
+        let mut claims = vec![Claim::new("The APK installs", true, "")];
         // Wait in short steps so a pause or the round's limit still stops it.
         let until = Instant::now() + SETTLE;
         while Instant::now() < until {
@@ -401,11 +419,21 @@ mod tests {
 
     #[test]
     fn the_device_and_crash_are_read_from_results() {
-        let devices = json!({"devices": [{"serial": "x", "state": "offline"}, {"serial": "emulator-5554", "state": "device"}]});
-        assert_eq!(first_online(&devices).as_deref(), Some("emulator-5554"));
-        assert_eq!(first_online(&json!({"devices": []})), None);
-        assert_eq!(first_virtual_device(&json!({"virtual_devices": [{"name": "Medium_Phone"}]})).as_deref(), Some("Medium_Phone"));
-        assert_eq!(first_virtual_device(&json!({"virtual_devices": []})), None);
+        let pick = |v: Value| check_pick(&json!({"devices": [], "check_pick": v}));
+        assert_eq!(pick(json!({"serial": "emulator-5554", "avd": "Medium_Phone", "how": "first_emulator"})), Pick::Use("emulator-5554".into()));
+        assert_eq!(pick(json!({"start": "Medium_Phone", "how": "started"})), Pick::Start("Medium_Phone".into()));
+        assert_eq!(pick(json!({"none": {"reason": "no_avd"}, "message": "No phone."})), Pick::None("No phone.".into()));
+        // A result without the pick is no device, never a guess from the list.
+        assert!(matches!(check_pick(&json!({"devices": [{"serial": "x", "state": "device"}]})), Pick::None(_)));
+        assert!(matches!(pick(Value::Null), Pick::None(_)));
+        // A failed Play settles claims by its typed step; a device that didn't start settles none.
+        let failed = |details: Value| play_failure(&ToolError::new(craft_anything_evidence::ErrorCode::ProgramFailed, "adb said no").with_details(details));
+        let install = failed(json!({"step": "install", "install_failure": "INSTALL_FAILED_UPDATE_INCOMPATIBLE", "serial": "emulator-5554"})).unwrap();
+        assert_eq!(install.len(), 1);
+        let launch = failed(json!({"step": "launch", "serial": "emulator-5554"})).unwrap();
+        assert_eq!(launch.len(), 2);
+        assert!(failed(json!({"reason": "no_avd"})).is_none());
+        assert!(play_failure(&ToolError::new(craft_anything_evidence::ErrorCode::TimedOut, "still booting")).is_none());
         let log = json!({"lines": ["noise", "E AndroidRuntime: FATAL EXCEPTION: main", "E AndroidRuntime: Process: com.me.notes, PID: 1", "E AndroidRuntime: java.lang.IllegalStateException: boom"]});
         let t = crash_lines(&log, "com.me.notes");
         assert_eq!(t.len(), 3);

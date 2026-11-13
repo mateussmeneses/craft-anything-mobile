@@ -49,12 +49,12 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             "adb_devices_find",
             "Connected devices",
-            "List phones and emulators attached to adb (`adb devices -l`): serial, connection state (device, unauthorized, offline…), product, model and transport id.",
+            "List phones and emulators attached to adb (`adb devices -l`): serial, connection state (device, unauthorized, offline…), product, model and transport id, and this computer's default device (adb_default_device_set) with whether it is online. With `for_check`, also `check_pick`: the device the builder's checks use by their rule (the default, else the first emulator, else the first online; none online names the virtual device to start), so a check never stops to ask.",
             "See which Android phones or emulators are plugged in.",
             Adb,
             read,
             eng,
-            schema_of::<Empty>,
+            schema_of::<DevicesParams>,
             adb_devices_find,
         ),
         spec(
@@ -308,6 +308,14 @@ pub fn specs() -> Vec<ToolSpec> {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct Empty {}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct DevicesParams {
+    /// Also say which device the builder's checks would use (`check_pick`).
+    #[serde(default)]
+    for_check: bool,
+}
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -669,8 +677,22 @@ fn engines_adb_check(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     done(e)
 }
 
+/// The device the builder's checks use, by their rule ([`crate::android_device::choose_for_check`]).
+fn check_pick(ctx: &Ctx<'_>, default: Option<&crate::android_device::DeviceRef>) -> Result<Value, ToolError> {
+    use crate::android_device::{Choice, choose_for_check};
+    let seen = super::emulator_tools::seen_now(ctx)?;
+    let chosen = choose_for_check(&seen, default);
+    Ok(match chosen.choice {
+        Choice::Use { serial, avd, how } => json!({"serial": serial, "avd": avd, "how": how, "default_missing": chosen.default_missing}),
+        Choice::Start { avd, how } => json!({"start": avd, "how": how, "default_missing": chosen.default_missing}),
+        // A check's rule always settles several; kept for completeness.
+        Choice::Choose { candidates } => json!({"choose": candidates, "default_missing": chosen.default_missing}),
+        Choice::None { why } => json!({"none": why, "message": why.error().message, "default_missing": chosen.default_missing}),
+    })
+}
+
 fn adb_devices_find(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    let _: Empty = parse_params(params)?;
+    let p: DevicesParams = parse_params(params)?;
     let adb = adb_for(ctx)?;
     let devices = adb.devices()?;
     let online = devices.iter().filter(|d| d.is_online()).count();
@@ -678,13 +700,14 @@ fn adb_devices_find(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
     // serial; an emulator kept by name isn't matched here (adb_emulators_list knows its serial).
     let default = crate::android_device::load(&crate::android_device::path_in(&ctx.session.config_dir())).file.default;
     let default_online = default.as_ref().is_some_and(|d| devices.iter().any(|x| x.is_online() && x.serial == d.text()));
+    let pick = if p.for_check { Some(check_pick(ctx, default.as_ref())?) } else { None };
     let summary = format!("{} device(s) attached, {online} online.", devices.len());
     let locations: Vec<Location> = devices.iter().map(|d| Location::new("device", &d.serial).with_label(d.state.clone())).collect();
     let e = EvidenceBuilder::new("adb_devices_find", Subject { kind: "engine".into(), sha256: None, name: Some("adb".into()) }, device_env(ctx))
         .params(json!({}))
         .authority(Authority::OutsideService)
         .confidence(Confidence::Observed)
-        .result(json!({"devices": devices, "count": devices.len(), "online": online, "default": default, "default_online": default_online}))
+        .result(json!({"devices": devices, "count": devices.len(), "online": online, "default": default, "default_online": default_online, "check_pick": pick}))
         .summary(summary)
         .locations(locations)
         .coverage(Coverage::complete(devices.len() as u64))
@@ -1152,7 +1175,7 @@ pub(crate) fn install_apk(adb: &Adb, serial: &str, apk: &std::path::Path, replac
         };
         return Err(ToolError::new(ErrorCode::ProgramFailed, format!("adb install failed: {}", tail_text(&combined).trim()))
             .with_remediation(remediation)
-            .with_details(json!({"install_failure": failure, "serial": serial})));
+            .with_details(json!({"step": "install", "install_failure": failure, "serial": serial})));
     }
     Ok(tail_text(&combined))
 }
@@ -1174,7 +1197,8 @@ pub(crate) fn launch_package(adb: &Adb, serial: &str, package: &str) -> Result<S
     let combined = format!("{}{}", out.stdout_text(), out.stderr_text());
     if combined.contains("No activities found") || combined.contains("Error") {
         return Err(ToolError::new(ErrorCode::ProgramFailed, format!("Could not launch {package}: {}", tail_text(&combined).trim()))
-            .with_remediation("The app may have no launcher activity; use adb_activity_open with an explicit component."));
+            .with_remediation("The app may have no launcher activity; use adb_activity_open with an explicit component.")
+            .with_details(json!({"step": "launch", "serial": serial})));
     }
     Ok(tail_text(&combined))
 }
