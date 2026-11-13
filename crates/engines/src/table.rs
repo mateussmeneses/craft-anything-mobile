@@ -329,6 +329,17 @@ const JADX_PINS: &[Pin] = &[Pin {
     strip_prefix: None,
 }];
 
+/// Bundletool 1.18.3 (runs on Java; one self-contained .jar for every OS). SHA-256 as published in the
+/// GitHub release's asset digest, and the same as the file downloaded and hashed here.
+const BUNDLETOOL_PINS: &[Pin] = &[Pin {
+    os: None,
+    arch: None,
+    url: "https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar",
+    sha256: "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29",
+    format: ArchiveFormat::File { name: "bundletool.jar" },
+    strip_prefix: None,
+}];
+
 /// Ghidra 12.1.4 (any OS), as published in Ghidra's release notes. Installed by `ghidra::get`.
 const GHIDRA_PINS: &[Pin] = &[Pin {
     os: None,
@@ -511,6 +522,17 @@ pub const ENGINES: &[ExternalEngine] = &[
         known_roots: NO_ROOTS,
         path_setting: true,
         install: Install::Pinned(VINEFLOWER_PINS),
+    },
+    ExternalEngine {
+        id: "bundletool",
+        name: "Bundletool",
+        needed_for: "Turning Android app bundles (.aab) into installable APKs (needs Java)",
+        exes: &["bundletool"],
+        exes_windows: &["bundletool.bat", "bundletool.cmd"],
+        known_paths: NO_PATHS,
+        known_roots: NO_ROOTS,
+        path_setting: true,
+        install: Install::Pinned(BUNDLETOOL_PINS),
     },
 ];
 

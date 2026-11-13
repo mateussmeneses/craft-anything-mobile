@@ -229,6 +229,71 @@ pub fn read(root: &Path, source: RootSource) -> Sdk {
     }
 }
 
+/// A program the SDK's `build-tools/<version>/` folder holds, which the build and signing tools run.
+/// (`bundletool` is not one: it is an engine, `engines::engine("bundletool")`.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildTool {
+    Aapt2,
+    Apksigner,
+    Zipalign,
+}
+
+impl BuildTool {
+    /// Every build tool, in the order they are reported.
+    pub const ALL: [BuildTool; 3] = [BuildTool::Aapt2, BuildTool::Apksigner, BuildTool::Zipalign];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            BuildTool::Aapt2 => "aapt2",
+            BuildTool::Apksigner => "apksigner",
+            BuildTool::Zipalign => "zipalign",
+        }
+    }
+
+    /// The file names the SDK uses, this system's first. A folder is read, never run, so the other
+    /// system's names are tried too (an SDK copied between computers).
+    fn file_names(self) -> [String; 2] {
+        // apksigner is a script (`apksigner.bat` on Windows, a shell script elsewhere); the others
+        // are programs.
+        let ext = match self {
+            BuildTool::Apksigner => ".bat",
+            _ => ".exe",
+        };
+        let (win, other) = (format!("{}{ext}", self.id()), self.id().to_string());
+        if cfg!(windows) { [win, other] } else { [other, win] }
+    }
+}
+
+/// A build tool found in an SDK: the newest `build-tools` version that has it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FoundBuildTool {
+    pub tool: BuildTool,
+    /// The `build-tools` folder's name (`36.1.0`).
+    pub version: String,
+    /// The package's revision, when it states one.
+    pub revision: Option<String>,
+    pub path: PathBuf,
+}
+
+impl Sdk {
+    /// The build tool in the newest `build-tools` version that has it, or `None`. The one lookup for
+    /// `aapt2`, `apksigner` and `zipalign`; it checks that a file is there, not that it starts.
+    /// Preview versions (`36.0.0-rc1`) sort by their numbers like any other.
+    pub fn build_tool(&self, tool: BuildTool) -> Option<FoundBuildTool> {
+        let names = tool.file_names();
+        self.build_tools.iter().rev().find_map(|package| {
+            let path = names.iter().map(|n| package.path.join(n)).find(|p| p.is_file())?;
+            Some(FoundBuildTool { tool, version: package.name.clone(), revision: package.revision.clone(), path })
+        })
+    }
+
+    /// Each of [`BuildTool::ALL`] with what [`Sdk::build_tool`] found.
+    pub fn build_tools_found(&self) -> Vec<(BuildTool, Option<FoundBuildTool>)> {
+        BuildTool::ALL.iter().map(|t| (*t, self.build_tool(*t))).collect()
+    }
+}
+
 /// The virtual devices in the first folder of `homes` that exists.
 pub fn find_avds(homes: &[PathBuf]) -> Option<Avds> {
     homes.iter().find(|h| h.is_dir()).map(|h| read_avds(h))
@@ -515,5 +580,47 @@ mod tests {
         let sdk = read(t.path(), RootSource::Given);
         assert!(sdk.truncated);
         assert_eq!(sdk.build_tools.len(), MAX_ENTRIES);
+    }
+
+    fn tool_file(root: &Path, version: &str, name: &str) {
+        let dir = root.join("build-tools").join(version);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(name), b"stand-in").unwrap();
+    }
+
+    #[test]
+    fn each_build_tool_comes_from_the_newest_version_that_has_it() {
+        let t = tempfile::tempdir().unwrap();
+        let r = t.path();
+        package(r, "build-tools/9.0.0", Some("9.0.0"));
+        package(r, "build-tools/34.0.0", None);
+        package(r, "build-tools/36.1.0", Some("36.1.0"));
+        // 36.1.0 has only aapt2 (a half-installed package); 34.0.0 has all three; 9.0.0 has zipalign.
+        tool_file(r, "36.1.0", "aapt2.exe");
+        for n in ["aapt2", "apksigner.bat", "zipalign"] {
+            tool_file(r, "34.0.0", n);
+        }
+        tool_file(r, "9.0.0", "zipalign.exe");
+        let sdk = read(r, RootSource::Given);
+        let aapt2 = sdk.build_tool(BuildTool::Aapt2).unwrap();
+        assert_eq!((aapt2.version.as_str(), aapt2.revision.as_deref()), ("36.1.0", Some("36.1.0")));
+        assert!(aapt2.path.ends_with("aapt2.exe"), "a Windows name is found on any host");
+        let signer = sdk.build_tool(BuildTool::Apksigner).unwrap();
+        assert_eq!((signer.version.as_str(), signer.revision), ("34.0.0", None));
+        assert!(signer.path.ends_with("apksigner.bat"));
+        assert_eq!(sdk.build_tool(BuildTool::Zipalign).unwrap().version, "34.0.0", "34 is newer than 9 by number, not by text");
+        let all = sdk.build_tools_found();
+        assert_eq!(all.iter().map(|(t, _)| t.id()).collect::<Vec<_>>(), ["aapt2", "apksigner", "zipalign"]);
+    }
+
+    #[test]
+    fn a_folder_or_missing_tool_is_not_a_build_tool() {
+        let t = tempfile::tempdir().unwrap();
+        package(t.path(), "build-tools/36.1.0", None);
+        // A folder named like the program is not the program.
+        fs::create_dir_all(t.path().join("build-tools/36.1.0/aapt2")).unwrap();
+        let sdk = read(t.path(), RootSource::Given);
+        assert!(sdk.build_tools_found().iter().all(|(_, f)| f.is_none()));
+        assert!(read(&t.path().join("absent"), RootSource::Given).build_tool(BuildTool::Zipalign).is_none());
     }
 }

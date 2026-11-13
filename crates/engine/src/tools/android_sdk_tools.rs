@@ -8,7 +8,7 @@
 
 use super::native_common::spec;
 use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
-use craft_anything_engines::android_sdk::{self, Places, RootSource};
+use craft_anything_engines::android_sdk::{self, BuildTool, FoundBuildTool, Places, RootSource, Sdk};
 use craft_anything_evidence::{Authority, Confidence, Coverage, Environment, EvidenceBuilder, Limitation, Location, Subject, ToolError};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -22,7 +22,7 @@ pub fn specs() -> Vec<ToolSpec> {
     vec![spec(
         SDK_CHECK_TOOL,
         "Android SDK on this computer",
-        "Find the Android SDK (sdk_root if given, then the SDK of the adb in use, ANDROID_HOME, ANDROID_SDK_ROOT and the usual install folder) and report what it holds: platform tools, emulator, build tools, platforms, NDKs, command-line tools and system images, each with the revision it states. Also lists the virtual devices (AVDs) with their system image, ABI, screen size, density and memory. Reads folders only: runs no SDK program and contacts no device.",
+        "Find the Android SDK (sdk_root if given, then the SDK of the adb in use, ANDROID_HOME, ANDROID_SDK_ROOT and the usual install folder) and report what it holds: platform tools, emulator, build tools, platforms, NDKs, command-line tools and system images, each with the revision it states. Names the SDK's own aapt2, apksigner and zipalign (from the newest build tools that have each) and where the bundletool engine is. Also lists the virtual devices (AVDs) with their system image, ABI, screen size, density and memory. Reads folders only: runs no SDK program and contacts no device.",
         "See whether this computer can build Android apps and which virtual phones it has.",
         Toolset::Setup,
         Effects::MUTATES_SESSION,
@@ -57,6 +57,45 @@ pub(crate) fn places(session: &crate::Session, sdk_root: Option<PathBuf>, avd_ho
     places
 }
 
+/// The programs later Android tools run to build, align and sign: the SDK's own `aapt2`,
+/// `apksigner` and `zipalign` (from the newest `build-tools` that has each) and the `bundletool`
+/// engine. Files are looked for, never run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AndroidBuildTools {
+    pub tools: Vec<(BuildTool, Option<FoundBuildTool>)>,
+    /// Where the `bundletool` engine is (settings, managed install, PATH), which is a `.jar` or a launcher.
+    pub bundletool: Option<PathBuf>,
+}
+
+impl AndroidBuildTools {
+    /// Everything missing, by name, for a message.
+    pub(crate) fn missing(&self) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = self.tools.iter().filter(|(_, f)| f.is_none()).map(|(t, _)| t.id()).collect();
+        if self.bundletool.is_none() {
+            out.push("bundletool");
+        }
+        out
+    }
+
+    fn to_json(&self) -> Value {
+        let mut map = serde_json::Map::new();
+        for (tool, found) in &self.tools {
+            map.insert(tool.id().to_string(), json!(found));
+        }
+        map.insert("bundletool".to_string(), json!(self.bundletool));
+        Value::Object(map)
+    }
+}
+
+/// The one lookup for the Android build tools: `sdk` is the SDK to read them from (the one
+/// [`android_sdk::find`] returned), and `bundletool` follows the engine lookup like every engine.
+pub(crate) fn android_build_tools(session: &crate::Session, sdk: Option<&Sdk>) -> AndroidBuildTools {
+    AndroidBuildTools {
+        tools: BuildTool::ALL.iter().map(|t| (*t, sdk.and_then(|s| s.build_tool(*t)))).collect(),
+        bundletool: session.settings.engine_path("bundletool"),
+    }
+}
+
 fn engines_android_sdk_check(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: SdkCheckParams = parse_params(params)?;
     let places = places(ctx.session, p.sdk_root.clone(), p.avd_home.clone());
@@ -82,6 +121,7 @@ fn engines_android_sdk_check(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOut
         lims.push(Limitation::new("no_avd_folder", "No folder of virtual devices was found, so none are listed; that is not the same as having none."));
     }
 
+    let build_tools = android_build_tools(ctx.session, sdk.as_ref());
     let devices = avds.as_ref().map(|a| a.devices.len()).unwrap_or(0);
     let usable = avds.as_ref().map(|a| a.devices.iter().filter(|d| d.usable).count()).unwrap_or(0);
     // What building and running an app each need, decided on what was seen.
@@ -99,6 +139,10 @@ fn engines_android_sdk_check(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOut
             devices
         ),
         None => format!("No Android SDK was found. Install Android Studio or the command-line tools, or pass sdk_root. {devices} virtual device(s)."),
+    };
+    let summary = match build_tools.missing().as_slice() {
+        [] => format!("{summary} aapt2, apksigner, zipalign and bundletool found."),
+        missing => format!("{summary} Not found: {}.", missing.join(", ")),
     };
     let mut locations = Vec::new();
     if let Some(s) = &sdk {
@@ -124,6 +168,7 @@ fn engines_android_sdk_check(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOut
             "found": sdk.is_some(),
             "sdk": sdk,
             "virtual_devices": avds,
+            "build_tools_found": build_tools.to_json(),
             "can_build": can_build,
             "can_emulate": can_emulate,
             "looked_in": places.candidates().into_iter().map(|(path, source)| json!({"path": path, "source": source})).collect::<Vec<_>>(),
@@ -189,6 +234,40 @@ mod tests {
         assert_eq!(v["confidence"], "observed");
         let codes: Vec<&str> = v["limitations"].as_array().unwrap().iter().filter_map(|l| l["code"].as_str()).collect();
         assert_eq!(codes, ["folders_only"]);
+    }
+
+    #[test]
+    fn the_build_tools_and_bundletool_are_named_or_reported_missing() {
+        let sdk = sdk();
+        let bt = sdk.path().join("build-tools").join("36.1.0");
+        for n in ["aapt2.exe", "zipalign.exe"] {
+            fs::write(bt.join(n), b"stand-in").unwrap();
+        }
+        let jar = sdk.path().join("bundletool-all.jar");
+        fs::write(&jar, b"stand-in").unwrap();
+        let mut s = crate::testing::session();
+        s.settings.engines.tools.bundletool = Some(jar.clone());
+        let e = Engine::new(s);
+        let v = call(&e, SDK_CHECK_TOOL, json!({"sdk_root": sdk.path()}));
+        let found = &v["result"]["build_tools_found"];
+        assert_eq!(found["aapt2"]["version"], "36.1.0");
+        assert_eq!(found["aapt2"]["revision"], "36.1.0");
+        assert!(found["zipalign"]["path"].as_str().is_some_and(|p| p.ends_with("zipalign.exe")));
+        assert!(found["apksigner"].is_null(), "not installed is null, not a guess");
+        assert_eq!(found["bundletool"], json!(jar));
+        assert!(v["summary"].as_str().is_some_and(|s| s.contains("Not found: apksigner.")), "{}", v["summary"]);
+        // The shared lookup says the same.
+        let session = crate::testing::session();
+        let looked = android_build_tools(&session, android_sdk::find(&places(&session, Some(sdk.path().into()), None)).as_ref());
+        assert_eq!(looked.missing(), ["apksigner", "bundletool"]);
+        assert!(looked.tools.iter().any(|(t, f)| *t == BuildTool::Aapt2 && f.is_some()));
+    }
+
+    #[test]
+    fn no_sdk_means_no_build_tools() {
+        let v = call(&Engine::new(crate::testing::session()), SDK_CHECK_TOOL, json!({}));
+        let found = &v["result"]["build_tools_found"];
+        assert!(["aapt2", "apksigner", "zipalign", "bundletool"].iter().all(|k| found[*k].is_null()), "{found}");
     }
 
     #[test]

@@ -2695,8 +2695,12 @@ Owner: open · Status: in progress
 - [x] `adb_emulators_list` and `adb_emulator_start`/`_stop`: start a virtual device through
       `platform::process` (it hands off; see the pitfall on launchers), wait for `sys.boot_completed`
       — claimed: mateussmeneses, branch feature/r6.1-emulator-tools
-- [ ] Find the SDK's own `aapt2`, `apksigner`, `zipalign` and `bundletool` (an engine table entry
+- [x] Find the SDK's own `aapt2`, `apksigner`, `zipalign` and `bundletool` (an engine table entry
       with a pin for bundletool), so later tools name one lookup
+      (`android_sdk::Sdk::build_tool`, the engine crate's `android_build_tools`, reported in
+      `engines_android_sdk_check`; `bundletool` 1.18.3 is a pinned `.jar` engine)
+- [ ] Run the bundletool pin through a real install on a machine with Java (`engines_install`) and
+      check `locate` finds `bundletool.jar`; only the pin's hash was verified
 - [ ] Device profiles as a typed table (resolution, density, API level, ABI, memory) that a check
       can ask an emulator for
 - [ ] Say in the Engines settings page which SDK was found
