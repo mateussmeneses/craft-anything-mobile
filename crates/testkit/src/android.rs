@@ -1049,3 +1049,77 @@ pub fn signed_apk(tamper: bool) -> Vec<u8> {
     }
     apk
 }
+
+/// One DEX record for [`oat_file`].
+#[derive(Debug, Clone)]
+pub struct OatDexSpec {
+    pub location: String,
+    pub checksum: u32,
+    pub dex_offset: u32,
+}
+
+/// A synthetic ELF-shaped `.odex` with an OAT header of `version` at `header_at` (at least 8):
+/// the header's fields (instruction set `isa`, the DEX count and list offset, the key-value
+/// size), the key-value store (`key\0value\0`, values may hold their own NUL padding) and the DEX
+/// records, laid out as that version lays them (versions 138, 170, 183, 195, 225, 230, 244, 259,
+/// 275). Not a loadable ELF: only its magic is there.
+pub fn oat_file(version: &str, isa: u32, dexes: &[OatDexSpec], kv: &[(&str, &str)], header_at: usize) -> Vec<u8> {
+    let (fields, copies_dex_header, bss) = match version {
+        "138" => (17, false, 0),
+        "170" => (12, false, 0),
+        "183" => (13, false, 0),
+        "195" => (14, false, 5),
+        "225" | "230" => (15, false, 5),
+        "244" => (15, true, 6),
+        _ => (16, true, 6),
+    };
+    let store: Vec<u8> = kv.iter().flat_map(|(k, v)| [k.as_bytes(), b"\0", v.as_bytes(), b"\0"].concat()).collect();
+    let header_size = 8 + 4 * fields;
+    let list_at = (header_size + store.len()).div_ceil(4) * 4;
+    let mut words = vec![0u32; fields];
+    words[0] = 0x1234_5678;
+    words[1] = isa;
+    words[3] = dexes.len() as u32;
+    words[4] = list_at as u32;
+    words[fields - 1] = store.len() as u32;
+    let mut oat = [b"oat\n".as_slice(), version.as_bytes(), b"\0"].concat();
+    oat.extend(words.iter().flat_map(|w| w.to_le_bytes()));
+    oat.extend(&store);
+    oat.resize(list_at, 0);
+    for d in dexes {
+        oat.extend((d.location.len() as u32).to_le_bytes());
+        oat.extend(d.location.as_bytes());
+        if copies_dex_header {
+            oat.extend(b"dex\n039\0");
+        }
+        oat.extend(d.checksum.to_le_bytes());
+        if copies_dex_header {
+            oat.extend([0xab; 20]);
+        }
+        oat.extend(d.dex_offset.to_le_bytes());
+        oat.extend([0; 12]);
+        oat.extend(vec![0; 4 * bss]);
+    }
+    let mut elf = b"\x7fELF".to_vec();
+    elf.resize(header_at.max(8), 0);
+    elf.extend(oat);
+    elf
+}
+
+/// A synthetic VDEX before version 027 (`019` or `021`): its fixed header, one checksum per DEX
+/// file, and, when `dex` is given, the DEX section's header (sizes) followed by those bytes.
+pub fn vdex_old(version: &str, dex_section_version: &str, checksums: &[u32], verifier_deps_size: u32, dex: Option<&[u8]>) -> Vec<u8> {
+    let mut v = [b"vdex".as_slice(), version.as_bytes(), b"\0", dex_section_version.as_bytes(), b"\0"].concat();
+    v.extend((checksums.len() as u32).to_le_bytes());
+    v.extend(verifier_deps_size.to_le_bytes());
+    if version == "021" {
+        v.extend([0; 8]);
+    }
+    v.extend(checksums.iter().flat_map(|c| c.to_le_bytes()));
+    if let Some(d) = dex {
+        v.extend((d.len() as u32).to_le_bytes());
+        v.extend([0; 8]);
+        v.extend(d);
+    }
+    v
+}

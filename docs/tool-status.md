@@ -114,7 +114,11 @@ Fixed:
   3 and 1 DEX files with no bytecode inside. Run again on 2026-11-13 on a system app's files
   (`BasicDreams`): the `.odex` as OAT 275 (filter `verify`, 1 DEX header, 17,240 bytes) and the
   `.vdex` as VDEX 027 (1 DEX file covered, none with its bytecode inside, 248 bytes). An app's own `oat/` folder can't be read without
-  root; a `.art` image is refused as unknown.
+  root. With the OAT header read by version (same day, same files): the `.odex` gives instruction
+  set x86_64, 1 DEX record (`/system/app/BasicDreams/BasicDreams.apk`, DEX 039, checksum equal to
+  the `.vdex`'s) and 13 settings from its key-value store. Only OAT 275 and VDEX 027 were checked on
+  real files; the other OAT layouts (138–259) and VDEX 019/021 come from the runtime's published
+  sources only, and say so. A `.art` image is named with its version; nothing else in it is read.
 - App frameworks (`android_frameworks_find`): **New**. On base APKs pulled from the emulator:
   YouTube and Chrome come out as Android Views (layouts found through the resource table, as
   their `res/` paths are shortened), Messages and Settings as Jetpack Compose (strong), with

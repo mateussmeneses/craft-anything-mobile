@@ -3,7 +3,7 @@
 //! module's manifest is read (binary XML in an APK, protocol buffers in a bundle) and the parts
 //! are named: the base, feature splits and configuration splits (ABI, screen density, language).
 
-use super::native_common::spec;
+use super::native_common::{page, spec};
 use super::static_input::{self, builder};
 use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
 use craft_anything_evidence::{Authority, Confidence, Coverage, CoverageStatus, ErrorCode, Limitation, Location, ToolError};
@@ -40,12 +40,12 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             ODEX_TOOL,
             "Compiled Android code (ODEX/VDEX)",
-            "Say what a file Android's runtime made from an app's code is: a .vdex (the format version; for version 027, Android 12 and later, its sections, how many DEX files it covers and whether their bytecode is inside it) or an .odex/.oat (an ELF with machine code compiled from the DEX: its OAT version and the settings dex2oat recorded, such as the compiler filter and command line). Says what can't be read: compiled machine code is not turned back into Java or Kotlin, and an older VDEX layout is only named.",
-            "See what an .odex or .vdex file from an Android device holds, and what can't be read from it.",
+            "Say what a file Android's runtime made from an app's code is: a .vdex (the format version; for 027, Android 12 and later, its sections, how many DEX files it covers and whether their bytecode is inside it; for 019 and 021 its header and DEX section sizes), an .odex/.oat (an ELF with machine code compiled from the DEX: its OAT version, and for the OAT versions whose layout is known the instruction set, the DEX files it was compiled from with their checksums, paged with offset/limit, and every setting dex2oat recorded, such as the compiler filter and class path) or an .art image (its version only). Says what can't be read: compiled machine code is not turned back into Java or Kotlin, and for an OAT version outside the known layouts only its settings are found, by key.",
+            "See what an .odex, .vdex or .art file from an Android device holds, and what can't be read from it.",
             Toolset::Android,
             Effects::EVIDENCE,
             Requires::Nothing,
-            schema_of::<BundleParams>,
+            schema_of::<OdexParams>,
             android_odex_show,
         ),
     ]
@@ -55,16 +55,18 @@ pub const ODEX_TOOL: &str = "android_odex_show";
 
 fn android_odex_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     use craft_anything_formats::art_files::{self, ArtFile};
-    let p: BundleParams = parse_params(params)?;
+    let p: OdexParams = parse_params(params)?;
     let input = static_input::load(ctx, p.path.as_deref(), MAX_FILE)?;
-    let file = art_files::parse_vdex(&input.bytes).or_else(|| art_files::parse_oat(&input.bytes)).ok_or_else(|| {
-        ToolError::unsupported(format!("{} is neither a VDEX file nor an ELF with an OAT header", input.name))
-            .with_remediation("Pass an .odex, .oat or .vdex file (from /data/app/<app>/oat/<abi>/ on a device).")
+    let file = art_files::parse_any(&input.bytes).ok_or_else(|| {
+        ToolError::unsupported(format!("{} is neither a VDEX file, an ELF with an OAT header nor an ART image", input.name))
+            .with_remediation("Pass an .odex, .oat, .vdex or .art file (from /data/app/<app>/oat/<abi>/ or /system/framework/ on a device).")
     })?;
     let mut lims = vec![Limitation::new(
         "compiled_code_not_decompiled",
         "Machine code compiled from the DEX is not turned back into Java or Kotlin; read the app's own DEX (in its APK) for that.",
     )];
+    let mut coverage = Coverage::complete(1);
+    let mut result = json!(file);
     let summary = match &file {
         ArtFile::Vdex { version, dex_files, embedded_dex, warnings, .. } => {
             lims.extend(warnings.iter().take(20).map(|w| Limitation::new("vdex_warning", w.clone())));
@@ -74,27 +76,99 @@ fn android_odex_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
                     "No DEX bytecode is inside this VDEX (since Android 12 it stays in the APK), so there is no code to read from it.",
                 ));
             }
+            if version != "027" {
+                lims.push(Limitation::new(
+                    "vdex_layout_from_documentation",
+                    "VDEX layouts before 027 were written from the runtime's published sources and haven't been checked on a real file; verification data and quickening data are not read.",
+                ));
+            }
             format!(
                 "{}: VDEX version {version}, {} DEX file(s) covered, {embedded_dex} with their bytecode inside.",
                 input.name,
                 dex_files.map_or("an unknown number of".to_string(), |n| n.to_string())
             )
         }
-        ArtFile::Oat { version, settings, embedded_dex, .. } => {
+        ArtFile::Oat { version, header, settings, dex_list, embedded_dex, warnings, .. } => {
+            lims.extend(warnings.iter().take(20).map(|w| Limitation::new("oat_warning", w.clone())));
             let filter = settings.iter().find(|(k, _)| k == "compiler-filter").map_or("not recorded", |(_, v)| v.as_str());
-            format!("{}: OAT version {version} (compiled code), compiler filter {filter}; {embedded_dex} DEX header(s) found in it.", input.name)
+            match header {
+                Some(h) => {
+                    if !h.layout_checked.contains("real file") {
+                        lims.push(Limitation::new(
+                            "oat_layout_from_documentation",
+                            format!("OAT {version}'s header layout was written from the runtime's published sources ({}) and hasn't been checked on a real file.", h.layout_checked),
+                        ));
+                    }
+                    if dex_list.is_empty() && h.dex_file_count > 0 && warnings.is_empty() {
+                        lims.push(Limitation::new(
+                            "oat_dex_list_not_read",
+                            format!("OAT {version}'s DEX records aren't laid out here, so the {} DEX file(s) it lists are counted but not named.", h.dex_file_count),
+                        ));
+                    }
+                    lims.push(Limitation::new(
+                        "oat_tables_not_followed",
+                        "Per-class tables, type lookup tables and .bss mappings are given only as the offsets each DEX record holds; they aren't read.",
+                    ));
+                }
+                None => lims.push(Limitation::new(
+                    "oat_header_not_read",
+                    format!(
+                        "OAT version {version} isn't one whose header layout is known here (known: {}); its instruction set and DEX file list are not read, only settings found by their keys.",
+                        art_files::known_oat_versions().join(", ")
+                    ),
+                )),
+            }
+            let (page, cov) = page(dex_list, p.offset, p.limit.unwrap_or(DEX_PAGE));
+            if !dex_list.is_empty() {
+                coverage = cov;
+            }
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("dex_list".into(), Value::Array(page));
+                obj.insert("dex_list_total".into(), json!(dex_list.len()));
+            }
+            let isa = header.as_ref().map_or_else(String::new, |h| format!(" for {}", h.instruction_set));
+            let listed = match (header, dex_list.first()) {
+                (Some(h), Some(first)) => format!(" {} DEX file(s) listed, the first {};", h.dex_file_count, first.location),
+                (Some(h), None) => format!(" {} DEX file(s) counted;", h.dex_file_count),
+                _ => String::new(),
+            };
+            format!("{}: OAT version {version} (compiled code){isa}, compiler filter {filter};{listed} {embedded_dex} DEX header(s) found in it.", input.name)
+        }
+        ArtFile::Image { version } => {
+            lims.push(Limitation::new(
+                "art_image_not_read",
+                "Only the ART image's magic and version are read; the objects, classes and methods it lays out for the runtime are not.",
+            ));
+            format!("{}: ART image version {version} (objects laid out for the runtime to map).", input.name)
         }
     };
-    let e = builder(ctx, ODEX_TOOL, input.subject.clone(), json!({"path": p.path}))
+    let e = builder(ctx, ODEX_TOOL, input.subject.clone(), json!({"path": p.path, "offset": p.offset, "limit": p.limit}))
         .authority(Authority::OriginalFiles)
         .location(Location::new("path", input.path.display().to_string()))
-        .result(json!(file))
+        .result(result)
         .summary(summary)
         .confidence(Confidence::Observed)
         .limitations(lims)
-        .coverage(Coverage::complete(1))
+        .coverage(coverage)
         .build()?;
     Ok(ToolOutput::evidence(e))
+}
+
+/// DEX records shown per page by default.
+const DEX_PAGE: usize = 100;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct OdexParams {
+    /// Absolute path of the .odex, .oat, .vdex or .art file; the active target when left out.
+    #[serde(default)]
+    path: Option<String>,
+    /// First DEX record of an OAT file's list to show.
+    #[serde(default)]
+    offset: usize,
+    /// How many DEX records to show (100 by default).
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -481,9 +555,38 @@ mod tests {
         let r = call(&engine(), ODEX_TOOL, json!({"path": o}));
         assert_eq!(r["result"]["kind"], "oat");
         assert!(r["summary"].as_str().unwrap().contains("verify"));
+        let codes: Vec<&str> = r["limitations"].as_array().unwrap().iter().filter_map(|l| l["code"].as_str()).collect();
+        assert!(codes.contains(&"oat_header_not_read"), "{codes:?}");
+        let a = d.path().join("boot.art");
+        std::fs::write(&a, b"art\n108\0\0\0\0\0").unwrap();
+        let r = call(&engine(), ODEX_TOOL, json!({"path": a}));
+        assert_eq!((r["result"]["kind"].as_str(), r["result"]["version"].as_str()), (Some("image"), Some("108")));
         let x = d.path().join("x.bin");
         std::fs::write(&x, b"hello").unwrap();
         assert_eq!(call_err(&engine(), ODEX_TOOL, json!({"path": x})).code, ErrorCode::NotSupported);
+    }
+
+    #[test]
+    fn an_oat_files_header_and_dex_list_are_read_and_paged() {
+        use craft_anything_testkit::android::{OatDexSpec, oat_file};
+        let d = tempfile::tempdir().unwrap();
+        let o = d.path().join("base.odex");
+        let dexes: Vec<OatDexSpec> =
+            (0..3).map(|i| OatDexSpec { location: format!("/data/app/x/base.apk!classes{i}.dex"), checksum: i, dex_offset: 0 }).collect();
+        std::fs::write(&o, oat_file("275", 2, &dexes, &[("compiler-filter", "speed-profile")], 64)).unwrap();
+        let r = call(&engine(), ODEX_TOOL, json!({"path": o, "offset": 1, "limit": 1}));
+        let res = &r["result"];
+        assert_eq!((res["header"]["instruction_set"].as_str(), res["header"]["dex_file_count"].as_u64()), (Some("arm64"), Some(3)));
+        assert_eq!((res["dex_list_total"].as_u64(), res["dex_list"].as_array().unwrap().len()), (Some(3), 1));
+        assert_eq!(res["dex_list"][0]["location"], "/data/app/x/base.apk!classes1.dex");
+        assert_eq!(r["coverage"]["next_offset"], 2);
+        let s = r["summary"].as_str().unwrap();
+        assert!(s.contains("arm64") && s.contains("speed-profile") && s.contains("3 DEX file(s) listed"), "{s}");
+        // A layout known only from documentation says so.
+        std::fs::write(&o, oat_file("225", 2, &dexes, &[], 64)).unwrap();
+        let r = call(&engine(), ODEX_TOOL, json!({"path": o}));
+        let codes: Vec<&str> = r["limitations"].as_array().unwrap().iter().filter_map(|l| l["code"].as_str()).collect();
+        assert!(codes.contains(&"oat_layout_from_documentation"), "{codes:?}");
     }
 
     #[test]

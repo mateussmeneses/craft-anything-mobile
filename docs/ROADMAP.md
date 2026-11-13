@@ -2738,8 +2738,13 @@ Owner: open · Status: in progress
 - [x] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
       exported components and intent filters are already typed fields there
 - [x] ODEX/VDEX: say what they are and what can't be read from them (`android_odex_show`)
-- [ ] ODEX/VDEX: read the OAT header's fields (instruction set, DEX file list) by version, and
-      an older VDEX layout (before 027); `.art` image files aren't read at all
+- [x] ODEX/VDEX: read the OAT header's fields (instruction set, DEX file list) by version, and
+      an older VDEX layout (before 027) (`formats::art_files`: OAT 138, 170, 183, 195, 225, 230,
+      244, 259 and 275, DEX records for 195 and later; VDEX 019 and 021; `.art` named by version)
+- [ ] Check the OAT layouts other than 275 and the VDEX 019/021 layouts on real files (each was
+      written from the runtime's published sources for its release only), and add layouts for OAT
+      versions between those releases
+- [ ] `.art` image files: only their magic and version are read, not their header or objects
 - [x] Which framework an app is built with (Compose, Views, React Native, Flutter, MAUI, Kotlin
       Multiplatform, a WebView shell), each with the evidence that says so and its confidence
       (`android_frameworks_find`, signal table in `analysis::android_frameworks`)
