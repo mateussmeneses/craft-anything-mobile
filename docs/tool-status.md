@@ -21,7 +21,7 @@ we don't have); source reviewed · **New** = added since the audit, unit-tested 
 | Managed (.NET) | 7 | 0 | 0 | 0 | no C# decompiler (IL + structure only) |
 | Java | 6 | 0 | 0 | 0 | `java_vineflower_decompile` verified on a real JAR (Commons IO 2.16.1, OpenJDK 21.0.12.1, Linux) |
 | Android (static) | 9 | 0 | 0 | 4 | JADX/Apktool/JEB paths unverified |
-| Android device (adb) | 22 | 0 | 0 | 3 | 20 verified on an emulator on 2026-11-10 (below); install, remove and bug report not run; no physical phone |
+| Android device (adb) | 25 | 0 | 0 | 0 | all run on an emulator (below, 2026-11-10 and 2026-11-13); none on a physical phone |
 | Apple | 8 | 0 | 0 | 6 | synthetic Mach-O/plist only; runtime tools macOS-only, except `runtime_ui_read` and `runtime_ui_walkthrough_record`, which also read and drive Windows apps (UI Automation; tested against a WinForms window) |
 | Formats, firmware, database | 11 | 0 | 0 | 1 | |
 | Runtime (process capture, native calls/UI) | 0 | 0 | 0 | 5 | run foreign code; not executed in the audit |
@@ -95,8 +95,14 @@ Fixed:
   `adb_app_download`, `adb_file_upload` and `adb_file_download` (the file came back with the same
   text), `adb_app_launch`, `adb_activity_open`, `adb_app_force_stop`. **Verified**. `adb_log_read`
   with `count` 200 returned 270 lines: logcat counts entries, and an entry can span lines.
-  **Unverified**: `adb_app_install`, `adb_app_remove`, `adb_bugreport_save`, and every tool on a
-  physical phone.
+  **Unverified**: every tool on a physical phone.
+- Install, remove and bug report (`adb_app_install`, `adb_app_remove`, `adb_bugreport_save`):
+  **Verified**. Run on 2026-11-13 on the Android 17 (API 37, x86_64) emulator `Medium_Phone`, in
+  Deep mode through the CLI, with a Flutter app built on this computer (`com.example.cam_counter`,
+  profile APK): install said "Success" and `pm list packages` listed it; remove said "Success" and
+  the package was gone; the bug report was one 5.5 MB zip made in 22 s, in a folder the tool
+  created. The install's params showed `replace` true without being passed (the default). Not
+  checked: Clean room (all calls were Deep), a physical phone, installing an `.aab`.
 - App state on device (`adb_app_state_show`): **New**. Run on the emulator above in Deep mode:
   Settings' home activity on screen, 9 tasks, Settings running (one pid) in tasks 7 and 13, 149
   permissions asked for and 208 held; YouTube installed and not running, its denied run-time
@@ -105,18 +111,33 @@ Fixed:
 - Compiled Android code (`android_odex_show`): **New**. System files pulled from the emulator
   (Android 17): `services.odex` and `boot.oat` read as OAT 275 with compiler filter
   `speed-profile`, an app's `.odex` with `verify`, and their `.vdex` files as VDEX 027 covering
-  3 and 1 DEX files with no bytecode inside. An app's own `oat/` folder can't be read without
+  3 and 1 DEX files with no bytecode inside. Run again on 2026-11-13 on a system app's files
+  (`BasicDreams`): the `.odex` as OAT 275 (filter `verify`, 1 DEX header, 17,240 bytes) and the
+  `.vdex` as VDEX 027 (1 DEX file covered, none with its bytecode inside, 248 bytes). An app's own `oat/` folder can't be read without
   root; a `.art` image is refused as unknown.
 - App frameworks (`android_frameworks_find`): **New**. On base APKs pulled from the emulator:
   YouTube and Chrome come out as Android Views (layouts found through the resource table, as
   their `res/` paths are shortened), Messages and Settings as Jetpack Compose (strong), with
   WebView use as a weak sign. Kotlin was found only in Settings: R8 strips its marker classes in
   the others. A real Flutter debug APK (`flutter create` + `flutter build apk --debug`) came out
-  as Flutter (strong). Not checked: a real React Native, .NET, Unity or Capacitor app.
+  as Flutter (strong); so did a profile APK on 2026-11-13 (strong, observed, all 149 files read,
+  `libflutter.so` for three ABIs, `flutter_assets/`, `libapp.so`), with Kotlin strong and Android
+  Views and WebView as weaker signs that Flutter's own embedding classes bring in. Not checked: a
+  real React Native, .NET, Unity or Capacitor app.
 - Android app in several files (`android_bundle_show`): **New**. Chrome's six split APKs, pulled
   from the emulator and zipped as `.apks`: package, version code, SDK 32–36 and compile SDK 37,
   the base (x86_64 code, 73 components), four feature splits and the `config.en` language split.
-  Not checked: a real `.aab` or `.xapk`.
+  Also a real `.aab` on 2026-11-13 (Flutter `build appbundle`, 42 MB): package, version 1 /
+  1.0.0, SDK 24-36, one base module with 3 components (2 exported), 1 DEX file, 8 assets, ABIs
+  arm64-v8a, armeabi-v7a and x86_64, no feature or configuration splits. Not checked: a real
+  `.xapk`, a multi-module bundle.
+- Package and resources of a bundle (`android_package_show`, `android_resources_read`): **New**.
+  Run on that `.aab` on 2026-11-13 in Deep mode. `android_resources_read` gave 1 package and 104
+  values in the default locale. `android_package_show` read the manifest (SDK 24-36, 1
+  permission, 3 components), the DEX file (576 classes, 3,921 methods, checksum fine) and a v1
+  signature (verified, debug certificate), but **Partial**: its summary says "native code for no
+  ABI" and 0 assets where `android_bundle_show` finds 3 ABIs and 8 assets, and it warns that
+  signing is not read although it read it (ROADMAP R6.2). Not run in Clean room.
 - Replay a walkthrough (`adb_walkthrough_replay`): **New**. On the emulator above, a 3-step walk
   in Settings (swipe, wait, back) recorded, then replayed from the same screen: 0 of 3 captures
   differ (same app and controls; pictures not byte-identical after the first). Replayed from the

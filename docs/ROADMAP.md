@@ -55,7 +55,7 @@ The project should be easy to fork and bend. New features land behind a seam, no
 | M3 Engine depth | More tools, and the known partial ones | open | 314 tools; the open lane |
 | M4 Release | Packaging, signing, a managed tier | maintainers | v0.3.0 released, signed, on every platform; a macOS CLI question and the managed tier remain |
 | M5 Works for real people | What people hit now that the project is public | maintainers | Comes first |
-| M6 Mobile apps | Phone apps get study → build → check → refine: Android first, then iOS | maintainers | Static Android reading and 24 adb tools exist; no mobile kind, stack, emulator or on-device check yet |
+| M6 Mobile apps | Phone apps get study → build → check → refine: Android first, then iOS | maintainers | Static Android reading, the adb tools and virtual-device start/stop exist; there is an `android` kind, Android stacks and an on-device install check; Play on a device, other stacks built for real and a physical phone are still open |
 
 ## Open work
 
@@ -90,7 +90,7 @@ Issues are ranked by people affected and how badly, after leaving out what's alr
 | Later | R4.1 macOS CLI, R4.2 Managed tier | **decision** | Not before M5 |
 | Mobile 1 | R6.1 Android environment | — | Everything after it needs to know which SDK, build tools and emulators the computer has |
 | Mobile 1 | R6.2 Android packages beyond one APK | — | Static reading; independent of devices |
-| Mobile 2 | R6.3 Watching an Android app run | R6.1; R5.7's adb checks *(soft)* | The 23 unverified adb tools are its base |
+| Mobile 2 | R6.3 Watching an Android app run | R6.1; R5.7's adb checks *(soft)* | The adb tools are its base: all have run on an emulator, none on a physical phone |
 | Mobile 3 | R6.4 Android apps as a kind to make | R6.1, R6.3 | A build is judged on a device, so it needs install, launch and a picture |
 | Mobile 4 | R6.5 Comparing an Android build with the original | R6.4 | Checks need a build to judge |
 | Mobile 5 | R6.6 iOS | R6.4 *(soft)* | Reuses the seams Android proves; its run-time half needs a Mac |
@@ -736,8 +736,9 @@ yet, and the quick start is how every new person begins.
       responsive (only a stand-in server so far)
 - [x] Vineflower: run it once on a real JAR (no Java on the machine it was written on)
       — claimed: hasnain607, branch docs/r5.7-vineflower-live-run
-- [ ] Verify the adb tools still unverified (`adb_app_install`, `adb_app_remove`,
-      `adb_bugreport_save`) and all of them on a physical phone; 20 ran on an emulator (R6.3)
+- [x] Verify the adb tools still unverified (`adb_app_install`, `adb_app_remove`,
+      `adb_bugreport_save`): they ran on an emulator on 2026-11-13 (R6.3)
+- [ ] Run the adb tools on a physical phone (all 23 have run on an emulator only; R6.3)
 - [ ] Android locales: try `only_locales` on a real APK (only the test fixture so far)
 - [ ] Ask LM Studio and a plain llama.cpp server for their context window (R5.4,
       `crate::window`): llama-swap (its list and its `/upstream/` route) and Ollama 0.40.15 were
@@ -2723,8 +2724,11 @@ Owner: open · Status: in progress
       configuration qualifiers; styles, arrays and plurals listed without their items)
 - [ ] A bundle's other configuration qualifiers and compound values, and its native libraries in
       `android_package_show`
-- [ ] Check `android_bundle_show` on a real `.aab` (no bundletool or Gradle here to make one) and
-      a real `.xapk`
+- [x] Check `android_bundle_show` on a real `.aab` (Flutter `build appbundle`, 2026-11-13: 3 ABIs, 8 assets, 3 components)
+- [ ] Check `android_bundle_show` on a real `.xapk`
+- [ ] `android_package_show` on an `.aab` says "native code for no ABI" and 0 assets, while
+      `android_bundle_show` finds 3 ABIs and 8 assets in the same file, and it warns that signing
+      is not read although it reports a verified v1 signature; make the two agree
 - [x] `android_package_show`: add the compile SDK (`compileSdkVersion`); minimum and target SDK,
       exported components and intent filters are already typed fields there
 - [x] ODEX/VDEX: say what they are and what can't be read from them (`android_odex_show`)
@@ -2733,8 +2737,9 @@ Owner: open · Status: in progress
 - [x] Which framework an app is built with (Compose, Views, React Native, Flutter, MAUI, Kotlin
       Multiplatform, a WebView shell), each with the evidence that says so and its confidence
       (`android_frameworks_find`, signal table in `analysis::android_frameworks`)
-- [ ] Check `android_frameworks_find` on real Flutter, React Native, .NET, Unity and Capacitor
-      apps (only Google's own apps were on the emulator); Kotlin Multiplatform has no marker of
+- [x] Check `android_frameworks_find` on a real Flutter app (two builds, 2026-11-13)
+- [ ] Check `android_frameworks_find` on real React Native, .NET, Unity and Capacitor
+      apps (only Google's own apps and a Flutter app so far); Kotlin Multiplatform has no marker of
       its own and R8 strips Kotlin's, so both need another signal (code shapes, not names)
 
 ### R6.3 Watching an Android app run
@@ -2764,8 +2769,14 @@ Owner: open · Status: todo
 - [x] App state: current activity, back stack, permissions granted (`adb_app_state_show`)
 - [x] Verify the unverified adb tools on the emulator (shared with R5.7): 20 ran on Android 17
       (API 37, x86_64); see tool-status.md
-- [ ] Verify the three that are left: `adb_app_install` and `adb_app_remove` (they need an APK we
-      built ourselves) and `adb_bugreport_save`; and run the adb tools on a physical phone
+- [x] Verify the three that were left: `adb_app_install` and `adb_app_remove` (with an APK we built
+      ourselves, a Flutter app) and `adb_bugreport_save`; run on an emulator on 2026-11-13
+- [ ] Run the adb tools on a physical phone (every adb tool has run on an emulator only)
+- [ ] `adb_emulator_start` with a saved quick-boot snapshot: the device stayed `offline` in adb for
+      the whole 600 s wait and the tool said it "had not appeared in adb" and "may still be
+      starting"; a cold boot of the same device took 26 s. Tell `offline` apart from absent in the
+      answer, give up sooner on a device that stays `offline`, and offer a cold boot. Why the
+      snapshot hung was not investigated
 
 ### R6.4 Android apps as a kind to make
 Owner: maintainers · Status: in progress
