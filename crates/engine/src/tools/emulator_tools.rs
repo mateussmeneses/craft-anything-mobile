@@ -240,14 +240,25 @@ fn log_tail(log: &std::path::Path) -> String {
     text.chars().skip(n.saturating_sub(LOG_TAIL)).collect::<String>().trim().to_string()
 }
 
-fn adb_emulator_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    let p: StartParams = parse_params(params)?;
-    let name = emulator::validate_avd_name(&p.name)?.to_string();
-    let wait = p.wait_seconds.unwrap_or(DEFAULT_WAIT_SECS);
-    if wait > MAX_WAIT_SECS {
-        return Err(ToolError::invalid(format!("wait_seconds can be at most {MAX_WAIT_SECS}.")));
-    }
-    let places = places(ctx.session, p.sdk_root.clone(), None);
+/// What [`start_emulator`] did: the device it waited for and how the start went.
+pub(crate) struct Started {
+    /// The serial it runs as; `None` when it never appeared in adb within the wait.
+    pub serial: Option<String>,
+    pub booted: bool,
+    pub already_running: bool,
+    pub waited_seconds: u64,
+    pub program: PathBuf,
+    /// The emulator's arguments; `None` when it was already running.
+    pub args: Option<Vec<String>>,
+    pub pid: Option<u32>,
+    pub log: Option<PathBuf>,
+}
+
+/// Start the virtual device `name` (already validated) and wait up to `wait` seconds for it to
+/// finish booting. A device already running is not started again. Shared by
+/// `adb_emulator_start` and Play.
+pub(crate) fn start_emulator(ctx: &mut Ctx<'_>, name: &str, options: StartOptions, wait: u32, sdk_root: Option<PathBuf>) -> Result<Started, ToolError> {
+    let places = places(ctx.session, sdk_root, None);
     let program = android_sdk::find(&places).as_ref().and_then(emulator::program).ok_or_else(|| {
         ToolError::new(ErrorCode::EngineMissing, "No Android SDK with an emulator was found on this computer.").with_remediation(
             "Install the Android Emulator (Android Studio → SDK Manager → SDK Tools), or pass sdk_root. engines_android_sdk_check shows what was found.",
@@ -270,10 +281,9 @@ fn adb_emulator_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
         }
     }
 
-    let options = StartOptions { no_window: p.no_window, cold_boot: p.cold_boot };
-    let args = emulator::start_args(&name, options);
+    let args = emulator::start_args(name, options);
     let before = running(&adb)?;
-    let already = before.iter().find(|r| r.name.as_deref() == Some(name.as_str())).cloned();
+    let already = before.iter().find(|r| r.name.as_deref() == Some(name)).cloned();
     let started = Instant::now();
     let (launched, log) = match &already {
         Some(_) => (None, None),
@@ -322,65 +332,88 @@ fn adb_emulator_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
         std::thread::sleep(POLL.min(deadline.saturating_duration_since(Instant::now())));
         // adb may be restarting its server while the emulator registers; a failed look is tried again.
         if let Ok(now) = running(&adb) {
-            seen = now.into_iter().find(|r| r.name.as_deref() == Some(name.as_str())).or(seen.filter(|_| false));
+            seen = now.into_iter().find(|r| r.name.as_deref() == Some(name)).or(seen.filter(|_| false));
             if let Some(r) = &seen {
                 ctx.report(None, if r.booted == Some(true) { format!("{name} is ready.") } else { format!("{name} is booting as {}…", r.serial) });
             }
         }
     }
 
-    let booted = seen.as_ref().is_some_and(|r| r.booted == Some(true));
-    let waited = started.elapsed().as_secs();
+    Ok(Started {
+        serial: seen.as_ref().map(|r| r.serial.clone()),
+        booted: seen.as_ref().is_some_and(|r| r.booted == Some(true)),
+        already_running: already.is_some(),
+        waited_seconds: started.elapsed().as_secs(),
+        program,
+        args: if already.is_some() { None } else { Some(args) },
+        pid: launched.as_ref().map(|l| l.pid()),
+        log,
+    })
+}
+
+fn adb_emulator_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: StartParams = parse_params(params)?;
+    let name = emulator::validate_avd_name(&p.name)?.to_string();
+    let wait = p.wait_seconds.unwrap_or(DEFAULT_WAIT_SECS);
+    if wait > MAX_WAIT_SECS {
+        return Err(ToolError::invalid(format!("wait_seconds can be at most {MAX_WAIT_SECS}.")));
+    }
+    let options = StartOptions { no_window: p.no_window, cold_boot: p.cold_boot };
+    let s = start_emulator(ctx, &name, options, wait, p.sdk_root.clone())?;
+    let waited = s.waited_seconds;
     let mut lims = Vec::new();
-    if already.is_none() {
+    if !s.already_running {
         lims.push(Limitation::new("keeps_running", "The emulator keeps running after this call; stop it with adb_emulator_stop."));
     }
-    if !booted {
+    if !s.booted {
         lims.push(Limitation::new(
             "boot_not_seen",
-            match &seen {
-                Some(r) => format!("{} did not report a finished boot within {wait} s; it may still be starting.", r.serial),
+            match &s.serial {
+                Some(serial) => format!("{serial} did not report a finished boot within {wait} s; it may still be starting."),
                 None => format!("No emulator named {name} appeared in adb within {wait} s; it may still be starting."),
             },
         ));
     }
-    let summary = match (&seen, booted, &already) {
-        (Some(r), true, Some(_)) => format!("{name} was already running as {}.", r.serial),
-        (Some(r), true, None) => format!("Started {name} as {}; it booted in {waited} s.", r.serial),
-        (Some(r), false, _) => format!("{name} is running as {} but had not finished booting after {waited} s.", r.serial),
+    let summary = match (&s.serial, s.booted, s.already_running) {
+        (Some(serial), true, true) => format!("{name} was already running as {serial}."),
+        (Some(serial), true, false) => format!("Started {name} as {serial}; it booted in {waited} s."),
+        (Some(serial), false, _) => format!("{name} is running as {serial} but had not finished booting after {waited} s."),
         (None, _, _) => format!("The emulator was started, but {name} had not appeared in adb after {waited} s."),
     };
-    let subject = Subject { kind: "device".into(), sha256: None, name: Some(seen.as_ref().map_or_else(|| name.clone(), |r| r.serial.clone())) };
+    let subject = Subject { kind: "device".into(), sha256: None, name: Some(s.serial.clone().unwrap_or_else(|| name.clone())) };
     let e = EvidenceBuilder::new(START_TOOL, subject, env(ctx))
         .params(json!({"name": name, "no_window": p.no_window, "cold_boot": p.cold_boot, "wait_seconds": wait, "sdk_root": p.sdk_root}))
         .authority(Authority::OurRun)
         .confidence(Confidence::Observed)
         .result(json!({
             "name": name,
-            "serial": seen.as_ref().map(|r| r.serial.clone()),
-            "booted": booted,
-            "already_running": already.is_some(),
+            "serial": s.serial,
+            "booted": s.booted,
+            "already_running": s.already_running,
             "waited_seconds": waited,
-            "program": program,
-            "args": if already.is_some() { None } else { Some(args) },
-            "pid": launched.as_ref().map(|l| l.pid()),
-            "log": log,
+            "program": s.program,
+            "args": s.args,
+            "pid": s.pid,
+            "log": s.log,
         }))
         .summary(summary)
         .limitations(lims)
-        .locations(seen.iter().map(|r| Location::new("device", &r.serial).with_label(name.clone())).collect::<Vec<_>>())
+        .locations(s.serial.iter().map(|serial| Location::new("device", serial).with_label(name.clone())).collect::<Vec<_>>())
         .coverage(Coverage::complete(1))
         .build()?;
     Ok(ToolOutput::evidence(e))
 }
 
-fn adb_emulator_stop(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    let p: StopParams = parse_params(params)?;
-    let serial = adb::validate_serial(&p.serial)?;
-    if !emulator::is_emulator_serial(serial) {
-        return Err(ToolError::invalid(format!("{serial} is not an emulator. Only virtual devices (emulator-5554) can be stopped here."))
-            .with_remediation("adb_emulators_list shows the emulators that are running."));
-    }
+/// What [`stop_emulator`] stopped.
+pub(crate) struct Stopped {
+    /// The virtual device it ran; `None` when its console didn't say.
+    pub name: Option<String>,
+    pub waited_ms: u64,
+}
+
+/// Shut down the emulator running as `serial` (already validated as an emulator serial) and wait,
+/// up to [`STOP_WAIT`], until adb no longer lists it. Shared by `adb_emulator_stop` and Play.
+pub(crate) fn stop_emulator(ctx: &Ctx<'_>, serial: &str) -> Result<Stopped, ToolError> {
     let adb = quick_adb(ctx).ok_or_else(adb_missing)?;
     let Some(target) = running(&adb)?.into_iter().find(|r| r.serial == serial) else {
         return Err(ToolError::new(ErrorCode::NotFound, format!("No emulator is running as {serial}."))
@@ -406,12 +439,23 @@ fn adb_emulator_stop(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
         )
         .with_remediation("Close the emulator's window, or try again in a moment."));
     }
+    Ok(Stopped { name: target.name, waited_ms: started.elapsed().as_millis() as u64 })
+}
+
+fn adb_emulator_stop(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: StopParams = parse_params(params)?;
+    let serial = adb::validate_serial(&p.serial)?;
+    if !emulator::is_emulator_serial(serial) {
+        return Err(ToolError::invalid(format!("{serial} is not an emulator. Only virtual devices (emulator-5554) can be stopped here."))
+            .with_remediation("adb_emulators_list shows the emulators that are running."));
+    }
+    let stopped = stop_emulator(ctx, serial)?;
     let e = EvidenceBuilder::new(STOP_TOOL, Subject { kind: "device".into(), sha256: None, name: Some(serial.to_string()) }, env(ctx))
         .params(json!({"serial": serial}))
         .authority(Authority::OurRun)
         .confidence(Confidence::Observed)
-        .result(json!({"serial": serial, "name": target.name, "stopped": true, "waited_ms": started.elapsed().as_millis() as u64}))
-        .summary(format!("Stopped {}.", target.name.clone().map_or_else(|| serial.to_string(), |n| format!("{n} ({serial})"))))
+        .result(json!({"serial": serial, "name": stopped.name, "stopped": true, "waited_ms": stopped.waited_ms}))
+        .summary(format!("Stopped {}.", stopped.name.clone().map_or_else(|| serial.to_string(), |n| format!("{n} ({serial})"))))
         .limitation(Limitation::new("device_changed", "This switched a virtual device off."))
         .coverage(Coverage::complete(1))
         .build()?;

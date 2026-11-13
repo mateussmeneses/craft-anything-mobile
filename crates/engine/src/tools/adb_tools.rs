@@ -1126,6 +1126,48 @@ fn adb_file_upload(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
     done(e)
 }
 
+/// Install `apk` on the online device `serial` (both already validated) with `adb install`
+/// (`-r` with `replace`); returns the end of what adb printed. Shared by `adb_app_install` and Play.
+pub(crate) fn install_apk(adb: &Adb, serial: &str, apk: &std::path::Path, replace: bool) -> Result<String, ToolError> {
+    let adb = adb.clone().timeout(Duration::from_secs(300)).idle_timeout(Duration::from_secs(120));
+    ensure_online(&adb, serial)?;
+    let apk_s = apk.to_string_lossy().into_owned();
+    let args: Vec<&str> = if replace { vec!["install", "-r", &apk_s] } else { vec!["install", &apk_s] };
+    let out = adb.targeted(serial, args)?;
+    let combined = format!("{}{}", out.stdout_text(), out.stderr_text());
+    if !out.success || !combined.contains("Success") {
+        return Err(ToolError::new(ErrorCode::ProgramFailed, format!("adb install failed: {}", tail_text(&combined).trim()))
+            .with_remediation("The APK may be incompatible, unsigned for this device, or already installed; see the message."));
+    }
+    Ok(tail_text(&combined))
+}
+
+/// Start `package`'s launcher activity on the online device `serial` (both already validated);
+/// returns the end of what the device printed. Shared by `adb_app_launch` and Play.
+pub(crate) fn launch_package(adb: &Adb, serial: &str, package: &str) -> Result<String, ToolError> {
+    ensure_online(adb, serial)?;
+    let line = format!("monkey -p {package} -c android.intent.category.LAUNCHER 1");
+    let out = adb.shell(serial, &line)?;
+    let combined = format!("{}{}", out.stdout_text(), out.stderr_text());
+    if combined.contains("No activities found") || combined.contains("Error") {
+        return Err(ToolError::new(ErrorCode::ProgramFailed, format!("Could not launch {package}: {}", tail_text(&combined).trim()))
+            .with_remediation("The app may have no launcher activity; use adb_activity_open with an explicit component."));
+    }
+    Ok(tail_text(&combined))
+}
+
+/// Force-stop `package` on the online device `serial` (both already validated). Shared by
+/// `adb_app_force_stop` and Play.
+pub(crate) fn force_stop(adb: &Adb, serial: &str, package: &str) -> Result<(), ToolError> {
+    ensure_online(adb, serial)?;
+    let out = adb.shell(serial, &format!("am force-stop {package}"))?;
+    let combined = format!("{}{}", out.stdout_text(), out.stderr_text());
+    if combined.contains("Error") || combined.contains("Exception") {
+        return Err(ToolError::new(ErrorCode::ProgramFailed, format!("am force-stop failed: {}", tail_text(&combined).trim())));
+    }
+    Ok(())
+}
+
 fn adb_app_install(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: InstallParams = parse_params(params)?;
     let serial = serial_of(&p.serial)?;
@@ -1133,18 +1175,11 @@ fn adb_app_install(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
     if !apk.is_file() {
         return Err(ToolError::invalid(format!("{} is not a file", apk.display())));
     }
-    let adb = adb_for(ctx)?.timeout(Duration::from_secs(300)).idle_timeout(Duration::from_secs(120));
-    ensure_online(&adb, serial)?;
+    let adb = adb_for(ctx)?;
+    let combined = install_apk(&adb, serial, &apk, p.replace)?;
     let apk_s = apk.to_string_lossy().into_owned();
-    let args: Vec<&str> = if p.replace { vec!["install", "-r", &apk_s] } else { vec!["install", &apk_s] };
-    let out = adb.targeted(serial, args)?;
-    let combined = format!("{}{}", out.stdout_text(), out.stderr_text());
-    if !out.success || !combined.contains("Success") {
-        return Err(ToolError::new(ErrorCode::ProgramFailed, format!("adb install failed: {}", tail_text(&combined).trim()))
-            .with_remediation("The APK may be incompatible, unsigned for this device, or already installed; see the message."));
-    }
     let e = dev_ev(ctx, "adb_app_install", serial, json!({"serial": serial, "apk_path": apk_s, "replace": p.replace}))
-        .result(json!({"apk_path": apk, "replace": p.replace, "output": tail_text(&combined)}))
+        .result(json!({"apk_path": apk, "replace": p.replace, "output": combined}))
         .summary(format!("Installed {}.", apk.display()))
         .limitation(Limitation::new("device_changed", "This installed an app onto the device."))
         .coverage(Coverage::complete(1))
@@ -1178,16 +1213,9 @@ fn adb_app_launch(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolEr
     let serial = serial_of(&p.serial)?;
     let package = adb::validate_package(&p.package)?;
     let adb = adb_for(ctx)?;
-    ensure_online(&adb, serial)?;
-    let line = format!("monkey -p {package} -c android.intent.category.LAUNCHER 1");
-    let out = adb.shell(serial, &line)?;
-    let combined = format!("{}{}", out.stdout_text(), out.stderr_text());
-    if combined.contains("No activities found") || combined.contains("Error") {
-        return Err(ToolError::new(ErrorCode::ProgramFailed, format!("Could not launch {package}: {}", tail_text(&combined).trim()))
-            .with_remediation("The app may have no launcher activity; use adb_activity_open with an explicit component."));
-    }
+    let combined = launch_package(&adb, serial, package)?;
     let e = dev_ev(ctx, "adb_app_launch", serial, json!({"serial": serial, "package": package}))
-        .result(json!({"package": package, "output": tail_text(&combined)}))
+        .result(json!({"package": package, "output": combined}))
         .summary(format!("Launched {package}."))
         .limitation(Limitation::new("device_changed", "This started an app on the device."))
         .coverage(Coverage::complete(1))
@@ -1277,12 +1305,7 @@ fn adb_app_force_stop(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
     let serial = serial_of(&p.serial)?;
     let package = adb::validate_package(&p.package)?;
     let adb = adb_for(ctx)?;
-    ensure_online(&adb, serial)?;
-    let out = adb.shell(serial, &format!("am force-stop {package}"))?;
-    let combined = format!("{}{}", out.stdout_text(), out.stderr_text());
-    if combined.contains("Error") || combined.contains("Exception") {
-        return Err(ToolError::new(ErrorCode::ProgramFailed, format!("am force-stop failed: {}", tail_text(&combined).trim())));
-    }
+    force_stop(&adb, serial, package)?;
     let e = dev_ev(ctx, "adb_app_force_stop", serial, json!({"serial": serial, "package": package}))
         .result(json!({"package": package}))
         .summary(format!("Force-stopped {package}."))
