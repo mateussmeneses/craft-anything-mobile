@@ -90,7 +90,7 @@ impl Worker {
                     self.how_it_works(ws, &url)?;
                 }
             }
-            TargetRef::Local { path } if !deep => self.study_from_outside(ws, &path)?,
+            TargetRef::Local { path } if !deep => self.study_from_outside(ws, kind, &path)?,
             TargetRef::Local { path } => {
                 self.step(ws, Step::Study, Status::Inspecting, "Looking inside it (nothing is run)…")?;
                 let (program, folder) = locate(&path, kind.studies_folder());
@@ -169,6 +169,9 @@ impl Worker {
                 if !console && runtime && program.is_file() && is_program(&program) {
                     notes.push_str(&self.picture_window(ws, &program, &capture)?);
                 }
+                if let Some(section) = self.study_running(ws, kind, &path, deep)? {
+                    notes.push_str(&section);
+                }
                 craft_anything_engine::project::write_atomic(&capture.join("README.md"), notes.as_bytes())?;
             }
             TargetRef::None => {
@@ -206,8 +209,8 @@ impl Worker {
 
     /// Clean room: nothing inside the original is read (no files, folder or code). When Settings
     /// allows running it and the person picked the program itself, it is started once and its
-    /// window pictured, as anyone could see it.
-    fn study_from_outside(&mut self, ws: &mut Workspace, path: &Path) -> Result<(), ToolError> {
+    /// window pictured, as anyone could see it; the kind may watch it run too.
+    fn study_from_outside(&mut self, ws: &mut Workspace, kind: &dyn TargetKind, path: &Path) -> Result<(), ToolError> {
         self.step(ws, Step::Study, Status::Inspecting, "Clean room: nothing inside it is read…")?;
         let capture = ws.capture_dir();
         std::fs::create_dir_all(&capture).map_err(|e| ToolError::io(capture.display(), e))?;
@@ -218,6 +221,9 @@ impl Worker {
         let runtime = self.engine.session().settings.runtime_study;
         if runtime && path.is_file() && is_program(path) {
             notes.push_str(&self.picture_window(ws, path, &capture)?);
+        }
+        if let Some(section) = self.study_running(ws, kind, path, false)? {
+            notes.push_str(&section);
         }
         craft_anything_engine::project::write_atomic(&capture.join("README.md"), notes.as_bytes())
     }

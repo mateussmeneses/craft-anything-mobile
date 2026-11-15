@@ -1715,6 +1715,77 @@ fn deep_mode_maps_the_javascript_beside_an_exe_target() {
     }
 }
 
+/// A kind that watches the original during the study: notes what it was given, then answers as
+/// told (a section, or an error).
+struct WatchingKind {
+    seen: Mutex<Vec<(PathBuf, bool, bool)>>,
+    fails: Option<ErrorCode>,
+}
+
+impl TargetKind for WatchingKind {
+    fn id(&self) -> &'static str {
+        "watching"
+    }
+    fn words(&self) -> kinds::KindWords {
+        kinds::KindWords { button: "Run", icon: "x", ready: "Ready", change_hint: "" }
+    }
+    fn detect(&self, _cx: &kinds::DetectCx) -> Option<u32> {
+        None
+    }
+    fn default_stack(&self, _cx: &kinds::DetectCx) -> &'static str {
+        "Rust"
+    }
+    fn goal(&self) -> &'static str {
+        "a thing"
+    }
+    fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
+        Vec::new()
+    }
+    fn study_running(&self, cx: &mut kinds::StudyCx) -> Result<Option<String>, ToolError> {
+        self.seen.lock().unwrap_or_else(PoisonError::into_inner).push((cx.target.to_path_buf(), cx.deep, cx.runtime_study));
+        cx.say("Watching it for the test…")?;
+        match self.fails {
+            Some(code) => Err(ToolError::new(code, "the stand-in device went away")),
+            None => Ok(Some("\n## Watched\n\nIt ran.\n".into())),
+        }
+    }
+}
+
+#[test]
+fn a_kind_watches_the_original_in_both_modes_and_its_failure_never_stops_the_study() {
+    let d = tempfile::tempdir().unwrap();
+    let target = d.path().join("notes.bin");
+    std::fs::write(&target, b"\0").unwrap();
+    for (deep, name) in [(false, "clean"), (true, "deep")] {
+        let mut ws = Workspace::create(&d.path().join("projects"), name, "Recreate this", TargetRef::Local { path: target.clone() }).unwrap();
+        let mut w = check_worker(&ws, deep);
+        let kind = WatchingKind { seen: Mutex::default(), fails: None };
+        w.study(&mut ws, &kind, deep).unwrap();
+        let notes = std::fs::read_to_string(ws.capture_dir().join("README.md")).unwrap();
+        assert!(notes.contains("## Watched\n\nIt ran."), "{name}: the kind's section is in the notes: {notes}");
+        assert_eq!(*kind.seen.lock().unwrap_or_else(PoisonError::into_inner), [(target.clone(), deep, false)], "{name}");
+        assert_eq!(ws.manifest.note, "Watching it for the test…", "{name}: said as a study step");
+
+        // A failure is said and noted, and the study still finishes.
+        let mut ws =
+            Workspace::create(&d.path().join("projects"), &format!("{name}-fails"), "Recreate this", TargetRef::Local { path: target.clone() }).unwrap();
+        let failing = WatchingKind { seen: Mutex::default(), fails: Some(ErrorCode::ProgramFailed) };
+        w.study(&mut ws, &failing, deep).unwrap();
+        let notes = std::fs::read_to_string(ws.capture_dir().join("README.md")).unwrap();
+        assert!(notes.contains("Watching it run didn't work: the stand-in device went away"), "{name}: {notes}");
+        assert_eq!(ws.manifest.capture_deep, Some(deep));
+        // A stop is a stop.
+        let stopped = WatchingKind { seen: Mutex::default(), fails: Some(ErrorCode::Cancelled) };
+        assert_eq!(w.study(&mut ws, &stopped, deep).unwrap_err().code, ErrorCode::Cancelled);
+    }
+    // Other kinds watch nothing by default.
+    let mut ws = Workspace::create(&d.path().join("projects"), "app", "Recreate this", TargetRef::Local { path: target.clone() }).unwrap();
+    let mut w = check_worker(&ws, false);
+    w.study(&mut ws, kind("app").as_ref(), false).unwrap();
+    let notes = std::fs::read_to_string(ws.capture_dir().join("README.md")).unwrap();
+    assert!(!notes.contains("Watching") && !notes.contains("## Watched"), "{notes}");
+}
+
 #[cfg(unix)]
 mod picking_up_a_build {
     use super::*;

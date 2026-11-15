@@ -134,6 +134,14 @@ pub trait TargetKind: Send + Sync {
     }
     /// The checks that judge a build of this kind for this project, in order.
     fn checks(&self, ws: &Workspace) -> Vec<Box<dyn Check>>;
+    /// Watch the original run during the study of a local target, from outside, as a person using
+    /// it would (an Android app walked through on a device). Returns a section for
+    /// capture/README.md, or `None`. Anything it can't do is said and returned as a section, not
+    /// an error: an error other than a stop is said in the feed and the study goes on. Default:
+    /// nothing (a desktop program's window is pictured by the study itself).
+    fn study_running(&self, _cx: &mut StudyCx) -> Result<Option<String>, ToolError> {
+        Ok(None)
+    }
     /// The next round's message after a check that wasn't good enough, for a builder that can
     /// look at pictures or one that can't ([`BriefCx::sees_pictures`]).
     fn refine(&self, check: &CheckResult, _sees_pictures: bool) -> String {
@@ -254,6 +262,55 @@ impl CheckCx<'_> {
         let store = self.worker.engine.session().settings.engine_store_dir();
         use craft_anything_engines::game as engine_game;
         engine_game::inventory(&engine_game::Places::here(store)).best(engine_game::Builder::Godot).map(|i| i.program.clone())
+    }
+}
+
+/// What a kind works with while it watches the original during the study
+/// ([`TargetKind::study_running`]).
+pub struct StudyCx<'a> {
+    worker: &'a Worker,
+    pub ws: &'a mut Workspace,
+    /// The local target the person picked.
+    pub target: &'a Path,
+    /// This run's mode, fixed at its start: Deep may read inside the target, Clean room may not.
+    pub deep: bool,
+    /// Settings allow running the original to study it (`runtime_study`), read once when the
+    /// study started.
+    pub runtime_study: bool,
+}
+
+impl StudyCx<'_> {
+    /// Run an engine tool, with the run's consent and its stop (as the rest of the study does).
+    pub fn call(&self, tool: &str, params: Value) -> Result<ToolOutput, ToolError> {
+        self.worker.call(tool, params)
+    }
+
+    /// Say a line in the feed, as one of the study's steps.
+    pub fn say(&mut self, text: &str) -> Result<(), ToolError> {
+        self.worker.step(self.ws, Step::Study, Status::Inspecting, text)
+    }
+
+    /// The person's pause or stop: long waits look at it.
+    pub fn stop(&self) -> CheckStop {
+        CheckStop::from(&self.worker.stop)
+    }
+}
+
+impl Worker {
+    /// Let the kind watch the original run (see [`TargetKind::study_running`]); returns the section
+    /// for the notes. Only a stop ends the study here: any other error is said and noted.
+    pub(super) fn study_running(&self, ws: &mut Workspace, kind: &dyn TargetKind, target: &Path, deep: bool) -> Result<Option<String>, ToolError> {
+        let runtime_study = self.engine.session().settings.runtime_study;
+        let mut cx = StudyCx { worker: self, ws, target, deep, runtime_study };
+        match kind.study_running(&mut cx) {
+            Ok(section) => Ok(section),
+            Err(e) if e.code == craft_anything_evidence::ErrorCode::Cancelled => Err(e),
+            Err(e) => {
+                let line = format!("Watching it run didn't work: {}", e.message);
+                self.step(ws, Step::Study, Status::Inspecting, &line)?;
+                Ok(Some(format!("\n## Watching it run\n\n{line}\n")))
+            }
+        }
     }
 }
 
