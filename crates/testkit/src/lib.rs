@@ -19,6 +19,7 @@ pub mod firmware;
 pub mod flutter;
 pub mod formats;
 pub mod games;
+pub mod ios;
 pub mod java;
 pub mod managed;
 pub mod packed;

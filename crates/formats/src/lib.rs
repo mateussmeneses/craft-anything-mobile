@@ -35,6 +35,7 @@ pub mod godot_pck;
 pub mod har;
 pub mod hints;
 pub mod il2cpp;
+pub mod ipa;
 pub mod java_class;
 pub mod java_ops;
 pub mod jsonc;
