@@ -4,6 +4,7 @@
 //! trait and calling [`KindRegistry::register`].
 
 mod android;
+mod android_study;
 mod app;
 mod game;
 pub mod mechanics;

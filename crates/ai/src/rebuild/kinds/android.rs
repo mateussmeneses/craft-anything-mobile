@@ -26,7 +26,7 @@ pub const ANDROID_BRIEF: &str = "The result is an Android app: build a debug APK
 /// What the brief adds when the target is an Android package and Deep mode lets the builder read it.
 pub const STUDY_PACKAGE: &str = "The original is an Android package. Before writing code, study it with Craft Anything's tools: android_bundle_show (for a split set or bundle: which part is which), android_package_show (package, SDK levels, permissions, components), android_frameworks_find (what it was made with), android_components_list (its screens and what other apps can start) and android_resources_read (its strings, per language). Rebuild what it does in your own code; don't copy its code, resources or name.";
 
-fn is_package(path: &str) -> bool {
+pub(super) fn is_package(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
     PACKAGE_ENDINGS.iter().any(|e| p.ends_with(e))
 }
@@ -102,6 +102,12 @@ impl TargetKind for AndroidKind {
 
     fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
         vec![Box::new(BuildCheck), Box::new(InstallCheck), Box::new(ScreenCheck)]
+    }
+
+    /// Install the original APK on a device, walk through its first screen and keep the walk in
+    /// capture/android-walkthrough/ for the screen check (see `android_study`).
+    fn study_running(&self, cx: &mut StudyCx) -> Result<Option<String>, ToolError> {
+        super::android_study::study_running(cx)
     }
 }
 

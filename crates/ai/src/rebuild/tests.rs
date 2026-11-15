@@ -1752,6 +1752,30 @@ impl TargetKind for WatchingKind {
 }
 
 #[test]
+fn an_android_study_says_why_it_did_not_walk_and_goes_on() {
+    let d = tempfile::tempdir().unwrap();
+    for (file, runtime, deep, says) in [
+        ("notes.apk", false, false, "Run to study is off in Settings"),
+        ("notes.apk", true, false, "No Android device or emulator could be found"),
+        ("notes.apk", true, true, "No Android device or emulator could be found"),
+        ("notes.apks", true, false, "can't be installed for a walk yet"),
+    ] {
+        let target = d.path().join(file);
+        std::fs::write(&target, b"PK").unwrap();
+        let name = format!("{file}-{runtime}-{deep}");
+        let mut ws = Workspace::create(&d.path().join("projects"), &name, "Rebuild this app", TargetRef::Local { path: target }).unwrap();
+        let mut w = check_worker(&ws, deep);
+        // The test session finds no adb (only configured engines), so nothing reaches a device.
+        w.engine.session().settings.runtime_study = runtime;
+        w.study(&mut ws, kind("android").as_ref(), deep).unwrap();
+        let notes = std::fs::read_to_string(ws.capture_dir().join("README.md")).unwrap();
+        assert!(notes.contains("## Walking it on a device") && notes.contains(says), "{name}: {notes}");
+        assert!(!ws.capture_dir().join("android-walkthrough").exists(), "{name}");
+        assert_eq!(ws.manifest.capture_deep, Some(deep));
+    }
+}
+
+#[test]
 fn a_kind_watches_the_original_in_both_modes_and_its_failure_never_stops_the_study() {
     let d = tempfile::tempdir().unwrap();
     let target = d.path().join("notes.bin");
