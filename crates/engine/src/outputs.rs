@@ -332,7 +332,14 @@ pub fn debug_apk(app: &Path) -> Option<PathBuf> {
                 let p = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
                 let debug =
                     p.contains("/outputs/") && (p.contains("/debug/") || name.contains("debug") || (p.contains("/flutter-apk/") && name == "app-profile.apk"));
-                if debug {
+                // .NET (MAUI) writes bin/Debug/<framework>/<id>-Signed.apk, with an unsigned copy
+                // beside it that no device installs: only the signed one counts. Judged from the
+                // folder inside `app`, so a parent folder's name can't make an APK a debug build.
+                let dotnet = || {
+                    let inside = path.strip_prefix(app).unwrap_or(&path).to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+                    format!("/{inside}").contains("/bin/debug/") && name.ends_with("-signed.apk")
+                };
+                if debug || dotnet() {
                     let at = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
                     if best.as_ref().is_none_or(|(t, _)| at > *t) {
                         best = Some((at, path));
@@ -378,6 +385,32 @@ mod apk_tests {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, b"apk").unwrap();
         assert_eq!(debug_apk(flutter.path()), Some(p));
+    }
+
+    /// A .NET debug build's signed APK is found, whatever framework version it names; its unsigned
+    /// copy, a release build and a parent folder named like a debug build are not.
+    #[test]
+    fn a_dotnet_debug_apk_is_found_by_its_signed_name() {
+        for framework in ["net9.0-android", "net10.0-android", "net11.0-android"] {
+            let d = tempfile::tempdir().unwrap();
+            let put = |rel: String| {
+                let p = d.path().join(rel);
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(&p, b"apk").unwrap();
+                p
+            };
+            put(format!("bin/Debug/{framework}/com.example.maui.apk"));
+            put(format!("bin/Release/{framework}/com.example.maui-Signed.apk"));
+            assert_eq!(debug_apk(d.path()), None, "{framework}: neither unsigned nor release");
+            let want = put(format!("bin/Debug/{framework}/com.example.maui-Signed.apk"));
+            assert_eq!(debug_apk(d.path()), Some(want), "{framework}");
+        }
+        let d = tempfile::tempdir().unwrap();
+        let outer = d.path().join("bin/Debug/work");
+        let release = outer.join("bin/Release/net10.0-android/x-Signed.apk");
+        std::fs::create_dir_all(release.parent().unwrap()).unwrap();
+        std::fs::write(&release, b"apk").unwrap();
+        assert_eq!(debug_apk(&outer), None, "a parent folder's name doesn't make a release a debug build");
     }
 
     #[test]
