@@ -553,7 +553,7 @@ fn control_names(tree: &Value, with_ids: bool) -> std::collections::BTreeSet<Str
 
 /// How far an edge of a control may sit from where the recording has it, as a share of the
 /// screen's width or height, and still count as the same place.
-const LAYOUT_TOLERANCE: f64 = 0.04;
+pub const LAYOUT_TOLERANCE: f64 = 0.04;
 /// How far two screens' width-to-height ratios may differ for their layouts to be compared.
 const ASPECT_TOLERANCE: f64 = 0.02;
 

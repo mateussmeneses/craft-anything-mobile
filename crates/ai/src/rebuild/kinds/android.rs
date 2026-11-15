@@ -87,7 +87,7 @@ impl TargetKind for AndroidKind {
         }
         s.push(ANDROID_BRIEF.to_string());
         if cx.ws.capture_dir().join(ORIGINAL_WALK).join("walkthrough.json").is_file() {
-            s.push(format!("A walk through the original was recorded in capture/{ORIGINAL_WALK}/: walkthrough.json lists its steps (taps, typing, keys), and step-NN.png and step-NN.json are each screen and its controls. After each build Craft Anything goes through the same steps on yours, from its first screen, and compares each screen's controls (by kind and label) with the original's, so lay your screens out so the same taps reach the same places."));
+            s.push(format!("A walk through the original was recorded in capture/{ORIGINAL_WALK}/: walkthrough.json lists its steps (taps, typing, keys), and step-NN.png and step-NN.json are each screen and its controls. After each build Craft Anything goes through the same steps on yours, from its first screen, and compares each screen's controls (by kind and label) with the original's, and where they sit on the screen, so lay your screens out so the same taps reach the same places."));
         }
         if cx.deep && matches!(&cx.ws.manifest.target, TargetRef::Local { path } if is_package(&path.to_string_lossy())) {
             s.push(STUDY_PACKAGE.to_string());
@@ -158,21 +158,103 @@ fn crash_lines(log: &Value, package: &str) -> Vec<String> {
 /// Where a walkthrough recorded on the original is kept for the screen check (capture/).
 pub const ORIGINAL_WALK: &str = "android-walkthrough";
 
-/// The share of captures that came out like the original's, in percent.
+/// How the screens of a replay compared with the original's, counted from its typed fields.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Tally {
+    /// Screens the original's walk also has.
+    compared: usize,
+    /// Of those, with the same controls (`changed == false`).
+    same_controls: usize,
+    /// Of those, with the same controls in the same places (`layout_changed != true`).
+    alike: usize,
+    /// Screens with the same controls whose layout couldn't be compared (`layout_compared == false`).
+    layout_unknown: usize,
+}
+
+fn tally(changes: &[Value]) -> Tally {
+    let mut t = Tally::default();
+    for c in changes.iter().filter(|c| c.get("original").and_then(Value::as_bool) == Some(true)) {
+        t.compared = t.compared.saturating_add(1);
+        if c.get("changed").and_then(Value::as_bool) != Some(false) {
+            continue;
+        }
+        t.same_controls = t.same_controls.saturating_add(1);
+        if c.get("layout_changed").and_then(Value::as_bool) != Some(true) {
+            t.alike = t.alike.saturating_add(1);
+        }
+        if c.get("layout_compared").and_then(Value::as_bool) == Some(false) {
+            t.layout_unknown = t.layout_unknown.saturating_add(1);
+        }
+    }
+    t
+}
+
+/// The share of captures that came out like the original's, in percent: the same controls, and
+/// none of them somewhere else.
 fn likeness(changes: &[Value]) -> f64 {
-    let compared: Vec<&Value> = changes.iter().filter(|c| c.get("original").and_then(Value::as_bool) == Some(true)).collect();
-    if compared.is_empty() {
+    let t = tally(changes);
+    if t.compared == 0 {
         return 0.0;
     }
-    let alike = compared.iter().filter(|c| c.get("changed").and_then(Value::as_bool) == Some(false)).count();
-    (alike as f64) * 100.0 / (compared.len() as f64)
+    (t.alike as f64) * 100.0 / (t.compared as f64)
+}
+
+/// A share of the screen, in whole percent.
+fn pct(v: f64) -> i64 {
+    (v * 100.0).round().clamp(-1000.0, 1000.0) as i64
+}
+
+/// Where one control sits in the rebuild compared with the original, from a replay's `moved`
+/// entry (edges as shares of the screen): "Button "Save" is lower (from 80-90% of the height in
+/// the original to 10-20% in yours)".
+fn placement(m: &Value) -> Option<String> {
+    let edges = |k: &str| -> Option<[f64; 4]> {
+        let a = m.get(k)?.as_array()?;
+        let v: Vec<f64> = a.iter().filter_map(Value::as_f64).collect();
+        <[f64; 4]>::try_from(v).ok()
+    };
+    let control = m.get("control")?.as_str()?;
+    let ([l, t, r, b], [l2, t2, r2, b2]) = (edges("recorded")?, edges("replayed")?);
+    let tol = craft_anything_engine::tools::adb_walkthrough_tools::LAYOUT_TOLERANCE;
+    let beyond = |d: f64| d.abs() > tol;
+    let mut words = Vec::new();
+    let (dy, dx) = ((t2 + b2 - t - b) / 2.0, (l2 + r2 - l - r) / 2.0);
+    let (dh, dw) = ((b2 - t2) - (b - t), (r2 - l2) - (r - l));
+    if beyond(dy) {
+        words.push(if dy > 0.0 { "lower" } else { "higher" });
+    }
+    if beyond(dx) {
+        words.push(if dx > 0.0 { "further right" } else { "further left" });
+    }
+    if beyond(dh) {
+        words.push(if dh > 0.0 { "taller" } else { "shorter" });
+    }
+    if beyond(dw) {
+        words.push(if dw > 0.0 { "wider" } else { "narrower" });
+    }
+    if words.is_empty() {
+        words.push("in another place");
+    }
+    let mut at = Vec::new();
+    if [t - t2, b - b2].into_iter().any(beyond) || beyond(dy) || beyond(dh) {
+        at.push(format!("from {}-{}% of the height in the original to {}-{}% in yours", pct(t), pct(b), pct(t2), pct(b2)));
+    }
+    if [l - l2, r - r2].into_iter().any(beyond) || beyond(dx) || beyond(dw) {
+        at.push(format!("{}-{}% of the width in the original, {}-{}% in yours", pct(l), pct(r), pct(l2), pct(r2)));
+    }
+    let how = match words.as_slice() {
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        [] => String::new(),
+    };
+    Some(format!("{control} is {how} ({})", at.join("; ")))
 }
 
 /// One sentence per capture that differs: what to fix.
 fn differences(changes: &[Value]) -> Vec<String> {
     changes
         .iter()
-        .filter(|c| c.get("changed").and_then(Value::as_bool) == Some(true))
+        .filter(|c| c.get("changed").and_then(Value::as_bool) == Some(true) || c.get("layout_changed").and_then(Value::as_bool) == Some(true))
         .take(20)
         .map(|c| {
             let i = c.get("index").and_then(Value::as_u64).unwrap_or(0);
@@ -191,6 +273,14 @@ fn differences(changes: &[Value]) -> Vec<String> {
                 }
                 if !extra.is_empty() {
                     s.push_str(&format!(" not in the original: {extra}."));
+                }
+                let moved: Vec<String> = c.get("moved").and_then(Value::as_array).into_iter().flatten().filter_map(placement).take(5).collect();
+                for m in &moved {
+                    s.push_str(&format!(" {m}."));
+                }
+                let more = c.get("controls_moved").and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok()).unwrap_or(0).saturating_sub(moved.len());
+                if more > 0 && !moved.is_empty() {
+                    s.push_str(&format!(" {more} more control(s) sit elsewhere."));
                 }
                 s
             }
@@ -260,25 +350,36 @@ impl Check for ScreenCheck {
             Err(e) => return Ok(unknown(format!("The recorded walk couldn't be replayed on the rebuild: {}", e.message))),
         };
         let changes: Vec<Value> = replay.get("changes").and_then(Value::as_array).cloned().unwrap_or_default();
-        let similarity = likeness(&changes);
-        let diffs = differences(&changes);
-        let note = if diffs.is_empty() {
-            format!("The rebuild went through the original's walk with the same controls on all {} screen(s).", changes.len())
-        } else {
-            format!(
-                "The rebuild went through the original's walk; {} of {} screen(s) differ. Fix these so each screen has the same controls as the original's (pictures are in checks/round-{round}/screens/ and capture/{ORIGINAL_WALK}/):\n{}",
-                diffs.len(),
-                changes.len(),
-                diffs.join("\n")
-            )
-        };
-        let mut r = CheckResult::new(id, round, true, note);
-        r.similarity = Some(similarity);
-        if replay.get("complete").and_then(Value::as_bool) == Some(false) {
-            r.unknowns.push("The walk stopped early on the rebuild, so later screens weren't compared.".into());
-        }
-        Ok(r)
+        Ok(screen_result(id, round, &changes, replay.get("complete").and_then(Value::as_bool) == Some(false)))
     }
+}
+
+/// The screen check's result from a replay's changes: the likeness, a note with both counts and
+/// what to fix, and what couldn't be compared.
+fn screen_result(id: &str, round: u32, changes: &[Value], stopped_early: bool) -> CheckResult {
+    let t = tally(changes);
+    let diffs = differences(changes);
+    let counts = format!("same controls on {} of {} screen(s), same layout on {} of {}", t.same_controls, t.compared, t.alike, t.compared);
+    let note = if diffs.is_empty() {
+        format!("The rebuild went through the original's walk: {counts}.")
+    } else {
+        format!(
+            "The rebuild went through the original's walk: {counts}. Fix these so each screen has the same controls as the original's, in the same places (pictures are in checks/round-{round}/screens/ and capture/{ORIGINAL_WALK}/):\n{}",
+            diffs.join("\n")
+        )
+    };
+    let mut r = CheckResult::new(id, round, true, note);
+    r.similarity = Some(likeness(changes));
+    if t.layout_unknown > 0 {
+        r.unknowns.push(format!(
+            "{} screen(s) were compared without their layout (a different screen shape, or a screen whose size wasn't known), so they count on their controls alone.",
+            t.layout_unknown
+        ));
+    }
+    if stopped_early {
+        r.unknowns.push("The walk stopped early on the rebuild, so later screens weren't compared.".into());
+    }
+    r
 }
 
 /// The built APK installs on a device, starts, and is still on screen a few seconds later.
@@ -454,6 +555,41 @@ mod tests {
         assert!(d[0].contains("missing Button \"Save\"") && d[0].contains("not in the original: Button \"OK\""), "{}", d[0]);
         assert!(d[1].contains("no screen here"));
         assert_eq!(likeness(&[]), 0.0);
+    }
+
+    #[test]
+    fn a_control_in_another_place_is_said_from_the_numbers_and_lowers_the_likeness() {
+        let save = json!({"control": "Button \"Save\"", "recorded": [0.3, 0.78, 0.7, 0.86], "replayed": [0.1, 0.92, 0.9, 0.99]});
+        let changes = vec![
+            json!({"index": 0, "original": true, "changed": false, "layout_compared": true, "layout_changed": false, "controls_moved": 0, "moved": []}),
+            json!({"index": 1, "original": true, "changed": false, "controls_compared": true, "layout_compared": true, "layout_changed": true, "controls_moved": 3, "moved": [save]}),
+            json!({"index": 2, "original": true, "changed": false, "layout_compared": false, "layout_changed": null, "moved": []}),
+            json!({"index": 3, "original": true, "changed": true, "controls_compared": true, "removed": ["Button \"Help\""], "layout_compared": true, "layout_changed": false}),
+        ];
+        assert_eq!(tally(&changes), Tally { compared: 4, same_controls: 3, alike: 2, layout_unknown: 1 });
+        assert!((likeness(&changes) - 50.0).abs() < 1e-9, "a moved control is not alike; an unknown layout counts on controls");
+        let d = differences(&changes);
+        assert_eq!(d.len(), 2, "{d:?}");
+        assert_eq!(
+            d[0],
+            "Screen 1: Button \"Save\" is lower and wider (from 78-86% of the height in the original to 92-99% in yours; 30-70% of the width in the original, 10-90% in yours). 2 more control(s) sit elsewhere."
+        );
+        assert!(d[1].contains("missing Button \"Help\""));
+        // A move within one direction names only that one.
+        let left = json!({"control": "Button \"Back\"", "recorded": [0.5, 0.1, 0.7, 0.2], "replayed": [0.1, 0.1, 0.3, 0.2]});
+        assert_eq!(placement(&left).unwrap(), "Button \"Back\" is further left (50-70% of the width in the original, 10-30% in yours)");
+        // A malformed entry is left out, never a panic.
+        for bad in [json!({}), json!({"control": "x", "recorded": [1, 2], "replayed": [0, 0, 0, 0]}), json!({"control": 3})] {
+            assert!(placement(&bad).is_none());
+        }
+
+        let r = screen_result("android-screens", 2, &changes, false);
+        assert!(r.note.contains("same controls on 3 of 4 screen(s), same layout on 2 of 4"), "{}", r.note);
+        assert_eq!(r.unknowns.len(), 1, "a screen compared without its layout is said: {:?}", r.unknowns);
+        assert!(r.unknowns[0].starts_with("1 screen(s) were compared without their layout"));
+        let alike = screen_result("android-screens", 2, &changes[..1], true);
+        assert!(alike.note.contains("same layout on 1 of 1") && !alike.note.contains("Fix these"), "{}", alike.note);
+        assert_eq!(alike.unknowns.len(), 1, "stopped early");
     }
 
     #[test]
