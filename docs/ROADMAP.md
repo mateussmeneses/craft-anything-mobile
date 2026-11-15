@@ -2893,10 +2893,27 @@ Owner: open · Status: in progress
       `by: study` (a person's walk is never replaced). The replay compares where controls sit (edges
       as shares of the screen, 4% tolerance; another screen shape isn't compared), and `ScreenCheck`
       counts a screen alike only with the same controls in the same places
-- [ ] Run the study walk live on the emulator (design section 5: a Flutter counter APK in Clean room
-      with no emulator running, an app already installed, a share button and a sign-in screen, a
-      rebuild with a moved button and one at another density, a stop during the walk); not yet
-      verified
+- [x] Run the study walk live on the emulator: a Flutter counter APK on Android 17, Clean room with
+      no emulator running (started without a window, package told from the app lists, walk saved
+      with `by: study`), the app already installed (skipped, said), Run to study off (said, no
+      device call), Deep mode (package from the manifest); `append` and its refusals; the replay's
+      layout fields on the same app and on a recording with a button moved by hand. It found that
+      the walk ended after one tap when a tap changed focusable text (a counter): fixed, the fix
+      tested but not run live again
+- [ ] Still not run live for the study walk: a tap that opens another app (a share button), a
+      first screen that asks for text, a stop during the walk and the next study removing the
+      leftover folder, a person's own walk being kept, a built rebuild with a moved button, a replay
+      at another density, a study that ends by itself after starting the emulator
+- [ ] In Clean room the study installs the original before it can tell the app was already there
+      (Android 17 installs over it without being asked to replace); it then skips the walk, but the
+      person's installed copy was replaced by the same APK
+- [ ] The Deep study's feed says "Looking inside it (nothing is run)" before a walk that installs
+      and starts the original
+- [ ] A way to run only the study from the CLI: `rebuild` goes on to a build with any coding agent
+      it finds, so checking a study means stopping the run by hand
+- [ ] Replay output: a control's name has two spaces when it has no id, and a picture's `identical`
+      sits beside the capture's `picture_identical` with the opposite value; adding to a walk in a
+      folder with none answers with the system's raw error
 - [ ] The study walk for split sets, `.xapk` and `.aab` targets (`adb_app_install` takes one APK)
 - [ ] Steps chosen by the studying AI through `adb_walkthrough_record` `append` (an extractor-style
       turn with its own token budget), to reach screens deeper than one tap from the first

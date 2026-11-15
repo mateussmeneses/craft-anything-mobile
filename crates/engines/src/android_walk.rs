@@ -120,6 +120,13 @@ pub fn controls(tree: &Value) -> BTreeSet<String> {
     nodes(tree).filter(|n| ["clickable", "long_clickable", "checkable", "scrollable", "focusable"].iter().any(|k| flag(n, k))).map(name).collect()
 }
 
+/// What tells one screen of an app from another during a walk: the controls a tap, a long press or
+/// a tick acts on. Text that only takes focus is left out: a counter's number changes with every
+/// tap (Flutter marks such text focusable), and that is the same screen.
+fn screen_of(tree: &Value) -> BTreeSet<String> {
+    nodes(tree).filter(|n| ["clickable", "long_clickable", "checkable"].iter().any(|k| flag(n, k))).map(name).collect()
+}
+
 /// The app a capture shows: the package of its first control that names one.
 pub fn package(tree: &Value) -> Option<&str> {
     nodes(tree).map(|n| text(n, "package")).find(|p| !p.is_empty())
@@ -178,7 +185,7 @@ pub fn next(plan: &Plan, first: &Value, current: &Value, app: &str, after_back: 
         // A share sheet, a browser, a permission dialog: one Back, then give up.
         return if after_back { Next::Done(Why::LeftApp) } else { Next::Back };
     }
-    if controls(current) != controls(first) {
+    if screen_of(current) != screen_of(first) {
         // The tap led somewhere: go back to the first screen before the next tap.
         return if after_back { Next::Done(Why::Lost) } else { Next::Back };
     }
@@ -300,6 +307,19 @@ mod tests {
         // A text that changed without changing what can be acted on is the same screen.
         let counted = screen(vec![node("Button", "Open", 0, 0), with(node("TextView", "1", 300, 0), "clickable", json!(false))]);
         assert_eq!(next(&plan, &first, &counted, "com.me.app", false), Next::Done(Why::AllTried));
+    }
+
+    /// Seen live on a Flutter counter: its number is focusable text, so every tap changed the
+    /// controls, the walk pressed Back and Back closed the app after one tap.
+    #[test]
+    fn focusable_text_that_changes_is_the_same_screen() {
+        let number = |n: &str| with(with(node("View", n, 300, 0), "clickable", json!(false)), "focusable", json!(true));
+        let first = screen(vec![node("Button", "Increment", 900, 0), number("0")]);
+        let counted = screen(vec![node("Button", "Increment", 900, 0), number("1")]);
+        assert_ne!(controls(&first), controls(&counted), "the fixture's text does change");
+        let plan = Plan { tried: ["Button \"Increment\"".to_string()].into(), taps: 1 };
+        assert_eq!(next(&plan, &first, &counted, "com.me.app", false), Next::Done(Why::AllTried));
+        assert_eq!(tap(&next(&Plan::default(), &first, &counted, "com.me.app", false)).0, "Button \"Increment\"");
     }
 
     #[test]

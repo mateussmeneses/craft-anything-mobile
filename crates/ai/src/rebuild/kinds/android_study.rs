@@ -231,7 +231,9 @@ pub(super) fn walk_original(io: &mut dyn Study, s: &Setup) -> Result<Option<Stri
         None
     };
     io.say(&format!("Installing the original on {serial} to walk through it…"))?;
-    // Clean room never installs over an app that is already there: it couldn't be told apart.
+    // Clean room doesn't ask to replace an app that is already there (it couldn't be told apart).
+    // Newer Android installs over it all the same (seen on API 37): the list difference below is
+    // what skips the walk then.
     let install = json!({"serial": serial, "apk_path": s.target.display().to_string(), "replace": s.deep});
     if let Err(e) = soft(io.call("adb_app_install", install))? {
         return skip(io, &format!("The original couldn't be installed on {serial} ({}), so it wasn't walked.", e.message));
@@ -282,7 +284,9 @@ fn ending(end: &End) -> String {
         End::Planner(Why::AllTried) => "every control on its first screen that a walk may tap was tapped once".into(),
         End::Planner(Why::TapLimit) => format!("it reached the walk's limit of {MAX_TAPS} taps"),
         End::Planner(Why::Lost) => "Back didn't bring its first screen back, so the walk stopped there".into(),
-        End::Planner(Why::LeftApp) => "a tap opened another app and Back didn't return to this one, so the walk stopped there".into(),
+        End::Planner(Why::LeftApp) => {
+            "the screen showed another app (a tap opened one, or Back closed this one) and Back didn't return to this one, so the walk stopped there".into()
+        }
         End::Planner(Why::AsksForText) => format!(
             "its first screen asks for text, so the walk stopped there. To go further, record your own walk with adb_walkthrough_record into capture/{ORIGINAL_WALK}/ (without `by: study`, so it is kept)"
         ),

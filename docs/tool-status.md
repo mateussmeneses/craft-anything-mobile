@@ -156,19 +156,27 @@ Fixed:
   walk with kept-out text, a rebuild, another device, a physical phone.
   Pictures are now compared pixel by pixel below the status bar: replayed from the same screen,
   0% and 0.4% of pixels differ before and after, 9% after the swipe (the fling stopped elsewhere).
-  Where controls sit (`layout_compared`, `controls_moved`, `moved`, 4% per edge): **new, unverified
-  live**; fixture tests only (two screen sizes of one shape, moves within and beyond the
-  tolerance, list rows with one label, another shape, no picture).
+  Where controls sit (`layout_compared`, `controls_moved`, `moved`, 4% per edge): **run live** on
+  the emulator: the same app replayed gave no moved control on 3 captures, and a recording with a
+  button moved 300 px by hand was reported as moved with both positions. Another density, another
+  shape and a built rebuild were not run; those have fixture tests only (two screen sizes of one
+  shape, moves within and beyond the tolerance, list rows with one label, another shape, no picture).
 - Record a walkthrough (`adb_walkthrough_record`): **New**. Two live walks on the emulator above:
   Settings search (tap, type, two backs: 5 captures, the app on screen changed and came back),
   and Add network (7 steps, 8 captures) with a password typed without `secret` into the field
   `id/password`: it was kept out automatically, and no file in the folder nor the evidence held it,
   also after "Show password". Not checked: a capture that fails (a screen that never settles), a
   refused step, a physical phone.
-  Adding steps to a walk (`append`, with `by`): **new, unverified live**; tests prove an appended
-  file equals a one-shot recording and that every refusal comes before the device is touched.
-  The study walk that drives it (an APK original walked during the study, R6.5): **new,
-  unverified live**; tested only with a stand-in device.
+  Adding steps to a walk (`append`, with `by`): **run live** on the emulator (Android 17, a
+  Flutter counter): a wait, then two appended taps gave three captures numbered on, the counter
+  reading 0, 1, 2; a missing folder, another serial and a 51st step were refused with the file
+  unchanged, and the 50th was accepted.
+  The study walk that drives it (an APK original walked during the study, R6.5): **run live** in
+  Clean room (emulator started without a window, package told from the app lists), with the app
+  already installed (skipped), with Run to study off, and in Deep mode. That run's walk was one
+  tap long: the counter's focusable text changed, the planner pressed Back and Back closed the
+  app. The planner now tells screens apart by what can be tapped or ticked; that fix has tests
+  only. Not run: another app opened by a tap, a first screen asking for text, a stop mid-walk.
 - Tap, type and swipe (`adb_input_send`): **New**. Run on the emulator above: a tap on Settings'
   search box, then "wi fi" typed (the field then held exactly that, space included); back and
   home keys; Add network opened, a name typed, the security list opened and an entry picked, a
