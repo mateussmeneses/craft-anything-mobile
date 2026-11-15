@@ -2905,7 +2905,7 @@ Owner: open · Status: in progress
       device call), Deep mode (package from the manifest); `append` and its refusals; the replay's
       layout fields on the same app and on a recording with a button moved by hand. It found that
       the walk ended after one tap when a tap changed focusable text (a counter): fixed, the fix
-      tested but not run live again
+      and run live again (one tap, no Back, the app still on screen, replay with no difference)
 - [ ] Still not run live for the study walk: a tap that opens another app (a share button), a
       first screen that asks for text, a stop during the walk and the next study removing the
       leftover folder, a person's own walk being kept, a built rebuild with a moved button, a replay

@@ -333,7 +333,7 @@ fn walk_launched(io: &mut dyn Study, s: &Setup, serial: &str, package: &str, wal
     let first_tree = recorded(new).and_then(|doc| captures(&doc).first().and_then(|c| capture_tree(new, c)));
     let Some(first_tree) = first_tree.filter(|t| !android_walk::controls(t).is_empty()) else {
         let _ = std::fs::remove_dir_all(new);
-        return skip(io, &format!("The controls of {package}'s first screen couldn't be read, so no walk was kept."));
+        return skip(io, &format!("{package}'s first screen shows nothing a walk can act on (or its controls couldn't be read), so no walk was kept."));
     };
     if android_walk::package(&first_tree) != Some(package) {
         let shown = android_walk::package(&first_tree).unwrap_or("nothing readable").to_string();

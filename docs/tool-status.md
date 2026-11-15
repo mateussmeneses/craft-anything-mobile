@@ -175,8 +175,8 @@ Fixed:
   Clean room (emulator started without a window, package told from the app lists), with the app
   already installed (skipped), with Run to study off, and in Deep mode. That run's walk was one
   tap long: the counter's focusable text changed, the planner pressed Back and Back closed the
-  app. The planner now tells screens apart by what can be tapped or ticked; that fix has tests
-  only. Not run: another app opened by a tap, a first screen asking for text, a stop mid-walk.
+  app. The planner now tells screens apart by what can be tapped or ticked; run live again:
+  one tap, no Back, the app still on screen, and the replay found no difference. Not run: another app opened by a tap, a first screen asking for text, a stop mid-walk.
 - Tap, type and swipe (`adb_input_send`): **New**. Run on the emulator above: a tap on Settings'
   search box, then "wi fi" typed (the field then held exactly that, space included); back and
   home keys; Add network opened, a name typed, the security list opened and an entry picked, a
@@ -202,6 +202,9 @@ Fixed:
   (`boot_phase`), gives up on a device offline for 90 s, stops it and starts once more with a cold
   boot (`cold_retry`), and fails with a cold-boot remedy if that stays offline too. Only the
   decision logic and the choice of which listed emulator is ours are tested (no device).
+  Run live since on its normal path only: a quick boot, a windowed and a windowless start and a
+  `cold_boot` start each booted in about 19 s with `boot_phase` booted and `cold_retry` false.
+  The emulator never stayed offline, so giving up and the cold retry were not seen.
 - Default device (`adb_default_device_set`): **New**. Run on Windows 11 on 2026-11-13 from the
   CLI: setting `Medium_Phone` wrote `android-devices.json` (version 1, `{"avd": …}`), Play then
   used it (`device_how: default`), `adb_devices_find` showed it, a name with a space was refused
