@@ -69,6 +69,7 @@ pub mod install_tools;
 // JavaScript, web, archive and app graph tools.
 pub mod application_tools;
 // Apple: Mach-O, code signing, plists, Swift, Interface Builder, asset catalogs, dyld.
+pub mod apple_ipa_tools;
 pub mod apple_tools;
 pub mod artifact_tools;
 pub mod js_tools;
@@ -157,6 +158,7 @@ pub fn all() -> Vec<crate::ToolSpec> {
     v.extend(native_workflows::specs());
     v.extend(native_formats::specs());
     v.extend(apple_tools::specs());
+    v.extend(apple_ipa_tools::specs());
     v.extend(android_tools::specs());
     v.extend(java_tools::specs());
     v.extend(adb_tools::specs());

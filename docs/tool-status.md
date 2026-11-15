@@ -135,6 +135,14 @@ Fixed:
   1.0.0, SDK 24-36, one base module with 3 components (2 exported), 1 DEX file, 8 assets, ABIs
   arm64-v8a, armeabi-v7a and x86_64, no feature or configuration splits. Not checked: a real
   `.xapk`, a multi-module bundle.
+- iOS app archive (`apple_ipa_show`): **New**, synthetic fixtures only, no real .ipa read. Tested
+  on archives built in code (`testkit::ios`): Info.plist in XML and binary form, a thin arm64
+  executable with `LC_ENCRYPTION_INFO_64` (cryptid 0 and 1) and a code signature with iOS
+  entitlements, a CMS `embedded.mobileprovision` (and one found by its XML markers), Flutter and
+  Swift frameworks, a share extension and a watch app; plus no `Payload`, two `.app` folders, a
+  traversal-shaped executable name, cut and mutated archives, an oversized plist, a spent byte
+  budget and capped lists. Not checked: any real `.ipa` (App Store, ad hoc, enterprise or
+  development), a universal executable, DER-only entitlements, a real profile's BER envelope.
 - Package and resources of a bundle (`android_package_show`, `android_resources_read`): **New**.
   Run on that `.aab` on 2026-11-13 in Deep mode. `android_resources_read` gave 1 package and 104
   values in the default locale. `android_package_show` read the manifest (SDK 24-36, 1

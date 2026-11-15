@@ -3,6 +3,7 @@
 
 pub mod android_frameworks;
 pub mod function_match;
+pub mod ios_app;
 pub mod java_decompile;
 pub mod js_app;
 pub mod js_compare;

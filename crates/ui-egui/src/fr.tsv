@@ -1483,3 +1483,4 @@ No build tools found	Aucun outil de compilation trouvé
 bundletool is here	bundletool est présent
 bundletool is missing	bundletool est absent
 Install Android Studio, or set the adb path below.	Installez Android Studio, ou indiquez le chemin d'adb ci-dessous.
+iOS app archive	Archive d'application iOS

@@ -2933,9 +2933,22 @@ Owner: open · Status: in progress
 - [ ] Network calls compared in a test environment the person owns (stand-in backend, R3.11)
 
 ### R6.6 iOS
-Owner: maintainers · Status: todo
-- [ ] `.ipa` as one app: Info.plist, entitlements, provisioning profile, frameworks, the main
-      Mach-O handed to the `apple` tools
+Owner: maintainers · Status: in progress
+- [x] `.ipa` as one app: Info.plist, entitlements, provisioning profile, frameworks
+      (`apple_ipa_show`, `formats::ipa`, `analysis::ios_app` with an iOS framework-signal table;
+      tested on synthetic archives only)
+- [ ] Read a real `.ipa` with `apple_ipa_show` (App Store, ad hoc, enterprise and development
+      builds; a universal executable; a real profile's CMS envelope, which may use indefinite BER
+      lengths and then is read only through its XML markers)
+- [ ] Hand the main Mach-O inside an `.ipa` to the `apple` tools: they take a file on disk, and
+      reading one member of an archive in place needs a seam they all share (no extraction)
+- [ ] `.ipa` files over 256 MiB: read the listing and the few members needed from the file
+      (`formats::zip_file`-style) instead of loading the whole archive
+- [ ] Decode DER entitlements (`codesign` only counts their bytes) so a signature without the XML
+      form still gives its entitlements
+- [ ] An `ipa` target kind, so an opened `.ipa` is named as an iOS app rather than a ZIP:
+      `TargetKind` is a closed enum matched in many places, so this needs the target-kind seam
+      first
 - [ ] `engines_xcode_check` (macOS): Xcode, simulators and runtimes; on Windows and Linux it says
       plainly that building and running iOS apps needs a Mac
 - [ ] Simulator tools through `xcrun simctl`: list, boot, install, launch, screenshot

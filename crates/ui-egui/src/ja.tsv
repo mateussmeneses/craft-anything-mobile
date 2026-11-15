@@ -953,3 +953,4 @@ No build tools found	ビルドツールが見つかりません
 bundletool is here	bundletool があります
 bundletool is missing	bundletool がありません
 Install Android Studio, or set the adb path below.	Android Studio をインストールするか、下で adb のパスを指定してください。
+iOS app archive	iOS アプリのアーカイブ
