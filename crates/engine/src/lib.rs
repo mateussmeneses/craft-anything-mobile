@@ -15,6 +15,7 @@ pub mod clean_room;
 pub const AGENT_APP_PREAPPROVED_TOOLS: &[&str] = &["rebuild_start"];
 pub mod feed;
 pub mod inbox;
+pub mod jdk;
 pub mod journal;
 pub mod mechanics;
 pub mod outputs;

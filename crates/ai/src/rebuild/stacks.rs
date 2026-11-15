@@ -191,6 +191,7 @@ mod tests {
         assert_eq!(found(&[("go.mod", "")]), Some(BUILDERS_CHOICE));
         assert_eq!(found(&[("App.csproj", "")]), Some(BUILDERS_CHOICE));
         assert_eq!(found(&[("index.html", "")]), Some("Plain HTML and CSS"));
+        assert_eq!(found(&[("composeApp/src/androidMain/AndroidManifest.xml", ""), ("build.gradle.kts", "")]), Some("Kotlin Multiplatform"));
         assert_eq!(found(&[("notes.md", "")]), None);
     }
 

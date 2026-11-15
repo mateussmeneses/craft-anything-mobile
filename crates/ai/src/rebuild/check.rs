@@ -6,6 +6,11 @@ use super::*;
 
 /// Run a step of a project's build in `app`: whether it succeeded, and what it printed.
 fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckStop) -> Result<(bool, String), String> {
+    run_with(app, prog, args, &[], minutes, stop)
+}
+
+/// [`run_in`] with environment variables set for the program (a build's `JAVA_HOME`).
+fn run_with(app: &Path, prog: &Path, args: &[String], env: &[(String, String)], minutes: u64, stop: &CheckStop) -> Result<(bool, String), String> {
     // A round with a time limit (the builder's own checks) cuts a step that would run past it,
     // instead of waiting out the step's own, much longer, deadline.
     let limit = Duration::from_secs(minutes * 60);
@@ -14,8 +19,8 @@ fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckSt
     // zero deadline is seen and count as passed.
     stop.check().map_err(|e| e.message)?;
     let s = stop.clone();
-    craft_anything_platform::Process::new(prog)
-        .args(args)
+    let process = env.iter().fold(craft_anything_platform::Process::new(prog).args(args), |p, (k, v)| p.env(k, v));
+    process
         .cwd(app)
         .timeout(timeout)
         // Engines go quiet for long stretches (shader compiles, cooking, a cold cargo build).
@@ -35,7 +40,8 @@ fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckSt
 /// Run one of a toolchain's commands in `app`.
 fn run_tool(app: &Path, tool: &stacks::Toolchain, command: &[String], minutes: u64, stop: &CheckStop) -> Result<(bool, String), String> {
     let Some((program, args)) = tool.command(app, command) else { return Err(format!("{} has no such command.", tool.name)) };
-    run_in(app, &program, &args, minutes, stop)
+    let env = tool.environment().map_err(|e| e.for_people())?;
+    run_with(app, &program, &args, &env, minutes, stop)
 }
 
 /// What a Unity without a licence prints, and what to tell the person.
@@ -172,7 +178,9 @@ pub(super) fn build_check(app: &Path, place: &str, stack: &str, editor: Option<&
             })
         }
         _ if app.join("Cargo.toml").is_file() => run(Path::new("cargo"), &["build".into(), "--quiet".into()], 2 * 60),
-        _ if app.join("package.json").is_file() => run(Path::new(if cfg!(windows) { "npm.cmd" } else { "npm" }), &["run".into(), "build".into()], 2 * 60),
+        // A package.json whose project another toolchain builds (React Native's Gradle project)
+        // isn't built by its `build` script: the toolchain's own build below decides.
+        _ if builds_with_npm_script(app) => run(Path::new(if cfg!(windows) { "npm.cmd" } else { "npm" }), &["run".into(), "build".into()], 2 * 60),
         (None, _) => {
             return stacks::toolchain_in(app).map_or_else(
                 || {
@@ -192,6 +200,12 @@ pub(super) fn build_check(app: &Path, place: &str, stack: &str, editor: Option<&
         Ok((false, out)) => (false, format!("Build failed: {}", error_lines(&out))),
         Err(e) => (false, e),
     }
+}
+
+/// Whether `app` is built by its package.json's `build` script: it has one, and no other toolchain
+/// (React Native's Gradle project) claims the folder.
+fn builds_with_npm_script(app: &Path) -> bool {
+    app.join("package.json").is_file() && stacks::toolchain_in(app).is_none_or(|t| t.script_build)
 }
 
 /// The engine whose own build runs: the stack's, unless app/ holds another kind of project
@@ -324,6 +338,73 @@ mod tests {
         std::fs::write(d.path().join("package.json"), r#"{"scripts":{"test":"npm test --workspaces"}}"#).unwrap();
         assert!(!printing(node, "npm error Missing script: \"test\""), "one package of several, maybe beside a real failure");
         assert!(!printing(node, "npm error Missing script: \"verify\""), "a script its tests call is a failure");
+    }
+
+    /// What the build check starts for a folder shaped like each Android stack: the toolchain and
+    /// its build command, with nothing built (fixtures only).
+    #[test]
+    fn each_android_stack_is_built_with_its_own_toolchain() {
+        let manifest = "<manifest/>";
+        let rn = r#"{"dependencies":{"react":"19","react-native":"0.88.1"}}"#;
+        type Case<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a str, &'a [&'a str], Option<&'a str>);
+        let cases: &[Case] = &[
+            ("Compose", &[("build.gradle.kts", ""), ("app/src/main/AndroidManifest.xml", manifest)], "Android (Gradle)", &["-q", "assembleDebug"], None),
+            ("Views", &[("settings.gradle.kts", ""), ("mobile/src/main/AndroidManifest.xml", manifest)], "Android (Gradle)", &["-q", "assembleDebug"], None),
+            (
+                "React Native",
+                &[("package.json", rn), ("android/settings.gradle", ""), ("android/app/src/main/AndroidManifest.xml", manifest)],
+                "React Native (Android)",
+                &["-p", "android", "-q", "assembleDebug"],
+                Some("android"),
+            ),
+            ("MAUI", &[("Notes.csproj", "")], ".NET", &["build", "--nologo", "-v", "q"], None),
+            (
+                "KMP composeApp",
+                &[("settings.gradle.kts", ""), ("composeApp/src/androidMain/AndroidManifest.xml", manifest)],
+                "Android (Gradle)",
+                &["-q", "assembleDebug"],
+                None,
+            ),
+            (
+                "KMP androidApp",
+                &[("settings.gradle.kts", ""), ("androidApp/src/main/AndroidManifest.xml", manifest)],
+                "Android (Gradle)",
+                &["-q", "assembleDebug"],
+                None,
+            ),
+            // A web app with an android/ folder of its own is not React Native.
+            (
+                "Web",
+                &[("package.json", r#"{"dependencies":{"vite":"7"}}"#), ("android/settings.gradle", "")],
+                "Node.js",
+                &["run", "build", "--if-present"],
+                None,
+            ),
+        ];
+        for (label, files, toolchain, args, wrapper_in) in cases {
+            let d = tempfile::tempdir().unwrap();
+            for (name, text) in *files {
+                let path = d.path().join(name);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, text).unwrap();
+            }
+            // The project's own wrapper, where its Gradle project is.
+            if let Some(folder) = wrapper_in {
+                std::fs::write(d.path().join(folder).join(if cfg!(windows) { "gradlew.bat" } else { "gradlew" }), "").unwrap();
+            }
+            let tool = stacks::toolchain_in(d.path()).expect(label);
+            assert_eq!(tool.name, *toolchain, "{label}");
+            let (program, got) = tool.command(d.path(), &tool.build).unwrap();
+            let want: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+            assert!(got.ends_with(&want), "{label}: {got:?}");
+            if let Some(folder) = wrapper_in {
+                assert_eq!(program, std::path::absolute(d.path().join(folder).join(if cfg!(windows) { "gradlew.bat" } else { "gradlew" })).unwrap(), "{label}");
+            }
+            // Only a plain package.json project is built by `npm run build`.
+            assert_eq!(builds_with_npm_script(d.path()), *label == "Web", "{label}");
+            let gradle = tool.jdk.is_some();
+            assert_eq!(gradle, toolchain.contains("Gradle") || toolchain.contains("React Native"), "{label}: a Gradle build picks its JDK");
+        }
     }
 
     #[test]

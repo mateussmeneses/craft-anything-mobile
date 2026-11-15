@@ -33,17 +33,18 @@ steps = "Use Flutter with Dart. Create the project directly in app/ (pubspec.yam
 name = "React Native"
 asked_by = [" react native ", " in expo ", " with expo "]
 uses = ["react-native"]
-steps = "Use React Native with TypeScript. Create the project directly in app/ (package.json with react and react-native, the android/ folder with its Gradle wrapper, and a package name of your own), and the script \"build\": \"react-native build-android --mode=debug\" in package.json (Craft Anything builds it with `npm run build`). Run `npm install` and `npm run build` from app/ until it succeeds; the APK lands in app/android/app/build/outputs/apk/debug/. Bundle the JavaScript into the APK (no development server is running when it is checked)."
+steps = "Use React Native with TypeScript. Create the project directly in app/ (package.json with react and react-native, the android/ folder with its Gradle wrapper, and a package name of your own), and the script \"build\": \"react-native build-android --tasks assembleDebug\" in package.json (without `--tasks assembleDebug` it builds an app bundle (.aab), not an APK). Craft Anything builds it with Gradle's assembleDebug from app/android/. Run `npm install` and the build from app/ until it succeeds; the APK lands in app/android/app/build/outputs/apk/debug/. A debug APK loads its JavaScript from the Metro development server, which isn't running when it is checked, so make the debug build carry its bundle too: set `debuggableVariants = []` in the `react { }` block of android/app/build.gradle."
 
 [[stack]]
 name = ".NET MAUI"
 asked_by = [" maui ", " in xamarin ", " with xamarin "]
-steps = "Use .NET MAUI with C#, for Android only (net9.0-android or newer). Create the project directly in app/ with an application id of your own, then run `dotnet build -f <its android framework> -c Debug` from app/ until it succeeds; the APK lands under app/bin/Debug/."
+steps = "Use .NET MAUI with C#, for Android only (the current .NET with its Android target framework). Create the project directly in app/ with an application id of your own, then run `dotnet build -f <its android framework> -c Debug` from app/ until it succeeds; the signed APK (ending in -Signed.apk) lands under app/bin/Debug/<its android framework>/."
 
 [[stack]]
 name = "Kotlin Multiplatform"
 asked_by = [" kotlin multiplatform ", " kmp ", " compose multiplatform "]
-steps = "Use Kotlin Multiplatform with Compose Multiplatform for the screens: a shared module for the code and screens, and an Android app module (androidApp or composeApp) with its own src/main/AndroidManifest.xml and a package name of your own, with the Gradle wrapper. Build the debug APK with `gradlew assembleDebug` from app/ until it succeeds; it lands in <the app module>/build/outputs/apk/debug/."
+found_by = ["composeApp/src/androidMain/AndroidManifest.xml"]
+steps = "Use Kotlin Multiplatform with Compose Multiplatform for the screens: a shared module for the code and screens, and an Android app module (androidApp or composeApp) with its own AndroidManifest.xml (src/main/ in androidApp, src/androidMain/ in composeApp) and a package name of your own, with the Gradle wrapper. Build the debug APK with `gradlew assembleDebug` from app/ until it succeeds; it lands in <the app module>/build/outputs/apk/debug/."
 
 [[stack]]
 name = "Kotlin + Android Views"

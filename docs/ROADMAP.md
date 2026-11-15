@@ -2834,10 +2834,26 @@ Owner: maintainers · Status: in progress
       Views, MAUI and Multiplatform only when asked for by name)
 - [x] An Android toolchain in `toolchains.toml` (before plain Gradle): `assembleDebug`, where the
       APK lands
-- [x] Flutter builds with its own toolchain (`flutter build apk --debug`), React Native through
-      its `build` script (`react-native build-android --mode=debug`); .NET MAUI with the .NET one
+- [x] Flutter builds with its own toolchain (`flutter build apk --profile`), React Native with
+      Gradle's `assembleDebug` in its `android/` folder (a "React Native (Android)" toolchain ahead
+      of Node.js, found by `android/settings.gradle` and a `react-native` dependency); .NET MAUI
+      with the .NET one (its `bin/Debug/<framework>/*-Signed.apk` is found as the debug APK)
+- [x] The Android and React Native toolchains start Gradle with `JAVA_HOME` set to a JDK in
+      `jdk.toml`'s range (17 to 25, 21 preferred): the environment's own when it fits, else one
+      found by searching install folders (Android Studio's bundled JDK among them); none is a
+      `ToolError` that names the versions. Kotlin Multiplatform's `src/androidMain/` manifest is
+      found too (found by fake JDK folders in tests; not run live)
 - [ ] Build each stack once for real through the build check (Flutter has, in a live run; the
-      others need Gradle, Node and .NET set up here)
+      others were built by hand with their toolchain's command on 2026-11-14, not through the
+      check, and the changes above came from that)
+- [ ] The Gradle check's first run downloads Gradle, the NDK and SDK pieces and fails on an
+      unaccepted SDK licence; say so in the note instead of the raw Gradle error
+- [ ] A React Native project's own tests (`npm test`, jest) aren't run: its toolchain's tests are
+      Gradle's unit tests
+- [ ] A debug React Native APK with `debuggableVariants = []` carries its JavaScript bundle
+      (the stack's instruction says so; not built here to confirm)
+- [ ] The plain "Gradle" toolchain (a JVM project) doesn't choose a JDK: its range depends on the
+      project's Gradle version
 - [x] Its launch recipe: install the built APK on the chosen device and start it (Play), which
       needs a device choice a recipe of one command can't carry (`project_play` picks a player
       from a registry, `play::Player`; the Android one installs the debug APK and starts it on the

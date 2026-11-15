@@ -39,6 +39,18 @@ pub struct Toolchain {
     /// Use a single installed PEP 621 console script after checking the fixed entrypoints.
     #[serde(default)]
     pub python_console_script: bool,
+    /// package.json dependencies that must also be there (with `found_by`) for a folder to be
+    /// this toolchain: any one of them. React Native's Android folder is also a Gradle project,
+    /// and a web app may keep an `android/` folder of its own, so the files alone don't say.
+    #[serde(default)]
+    pub uses: Vec<String>,
+    /// Its build is the package.json's `build` script, which the project must have: the build
+    /// check runs `npm run build` and a project without the script fails.
+    #[serde(default)]
+    pub script_build: bool,
+    /// The name of the JDK range (`jdk.toml`) its programs run under, when they need one.
+    #[serde(default)]
+    pub jdk: Option<String>,
 }
 
 /// A declared entrypoint and argv template. A wildcard file must identify exactly one file.
@@ -67,9 +79,11 @@ pub fn catalogue() -> &'static [Toolchain] {
 
 /// The first toolchain whose marker files exist in this folder.
 pub fn found_in(dir: &Path) -> Option<&'static Toolchain> {
+    let deps = std::cell::OnceCell::new();
+    let uses = |t: &Toolchain| t.uses.is_empty() || t.uses.iter().any(|d| deps.get_or_init(|| crate::outputs::npm_dependencies(dir)).contains(d));
     catalogue()
         .iter()
-        .find(|t| t.found_by.iter().any(|pattern| !matching_files(dir, pattern).is_empty()))
+        .find(|t| t.found_by.iter().any(|pattern| !matching_files(dir, pattern).is_empty()) && uses(t))
         .or_else(|| catalogue().iter().find(|t| t.standalone_entrypoints && t.launch.iter().any(|r| !r.file.contains('*') && dir.join(&r.file).is_file())))
 }
 
@@ -109,6 +123,19 @@ fn scan_entries(dir: &Path, candidate: impl Fn(std::fs::DirEntry) -> std::io::Re
 }
 
 impl Toolchain {
+    /// What its programs are started with besides the caller's environment: `JAVA_HOME` set to a
+    /// JDK the build works under, when the toolchain needs one. Fails, saying which JDKs work,
+    /// when none can be found.
+    pub fn environment(&self) -> Result<Vec<(String, String)>, craft_anything_evidence::ToolError> {
+        self.environment_from(&crate::jdk::Sources::host())
+    }
+
+    fn environment_from(&self, sources: &crate::jdk::Sources) -> Result<Vec<(String, String)>, craft_anything_evidence::ToolError> {
+        let Some(range) = self.jdk.as_deref().and_then(crate::jdk::range) else { return Ok(Vec::new()) };
+        let jdk = crate::jdk::choose(range, sources)?;
+        Ok(vec![("JAVA_HOME".to_string(), jdk.home.display().to_string())])
+    }
+
     /// Resolve a command, preferring the project's own interpreter/build wrapper on this OS.
     pub fn command(&self, app: &Path, command: &[String]) -> Option<(PathBuf, Vec<String>)> {
         self.command_for(app, command, cfg!(windows))
@@ -219,7 +246,7 @@ mod tests {
     #[test]
     fn the_shared_catalogue_is_complete() {
         let parsed: Table = toml::from_str(include_str!("toolchains.toml")).unwrap();
-        assert_eq!(parsed.toolchain.len(), 10);
+        assert_eq!(parsed.toolchain.len(), 11);
         for tool in catalogue() {
             assert!(!tool.found_by.is_empty() && !tool.build.is_empty() && !tool.test.is_empty(), "{tool:?}");
             for recipe in &tool.launch {
@@ -241,6 +268,52 @@ mod tests {
         // A Flutter project, which also holds android/app/src/main/AndroidManifest.xml, builds with Flutter.
         std::fs::write(dir.path().join("pubspec.yaml"), "name: x").unwrap();
         assert_eq!(found_in(dir.path()).map(|t| t.name.as_str()), Some("Flutter"));
+    }
+
+    /// React Native's Android project is built by Gradle, not by the package.json that names Node.js;
+    /// a web app with an android/ folder of its own is still Node.js.
+    #[test]
+    fn a_react_native_project_is_built_by_gradle() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path();
+        std::fs::create_dir_all(app.join("android")).unwrap();
+        std::fs::write(app.join("android/settings.gradle"), "").unwrap();
+        std::fs::write(app.join("package.json"), r#"{"dependencies":{"vite":"7"}}"#).unwrap();
+        assert_eq!(found_in(app).map(|t| t.name.as_str()), Some("Node.js"));
+        std::fs::write(app.join("package.json"), r#"{"devDependencies":{"react-native":"0.88.1"}}"#).unwrap();
+        assert_eq!(found_in(app).map(|t| t.name.as_str()), Some("React Native (Android)"));
+    }
+
+    /// Kotlin Multiplatform's `composeApp/src/androidMain/` manifest names an Android module.
+    #[test]
+    fn a_kotlin_multiplatform_android_module_builds_a_debug_apk() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("composeApp/src/androidMain")).unwrap();
+        std::fs::write(dir.path().join("composeApp/src/androidMain/AndroidManifest.xml"), "<manifest/>").unwrap();
+        std::fs::write(dir.path().join("settings.gradle.kts"), "").unwrap();
+        assert_eq!(found_in(dir.path()).map(|t| t.name.as_str()), Some("Android (Gradle)"));
+    }
+
+    /// An Android build is started with a compatible JDK as `JAVA_HOME`, or refused saying which work.
+    #[test]
+    fn an_android_build_gets_a_compatible_jdk() {
+        let jdk = |parent: &Path, name: &str, version: &str| {
+            let home = parent.join(name);
+            std::fs::create_dir_all(home.join("bin")).unwrap();
+            std::fs::write(home.join("bin").join(if cfg!(windows) { "java.exe" } else { "java" }), "").unwrap();
+            std::fs::write(home.join("release"), format!("JAVA_VERSION=\"{version}\"\n")).unwrap();
+            home
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let (too_new, ok) = (jdk(dir.path(), "jdk-27", "27.0.1"), jdk(&dir.path().join("studio"), "jbr", "21.0.8"));
+        let sources = crate::jdk::Sources { java_home: Some(too_new), path_java: None, roots: vec![(dir.path().join("studio"), 1)] };
+        let tool = |name: &str| catalogue().iter().find(|t| t.name == name).unwrap();
+        assert_eq!(tool("Android (Gradle)").environment_from(&sources).unwrap(), vec![("JAVA_HOME".to_string(), ok.display().to_string())]);
+        assert_eq!(tool("React Native (Android)").environment_from(&sources).unwrap().len(), 1);
+        assert!(tool("Node.js").environment_from(&sources).unwrap().is_empty(), "no JDK for a tool that doesn't need one");
+        let none = crate::jdk::Sources { roots: vec![], ..sources };
+        let err = tool("Android (Gradle)").environment_from(&none).unwrap_err();
+        assert!(err.remediation.unwrap_or_default().contains("JDK 17 to 25"));
     }
 
     /// Shared launch detection preserves argument boundaries and refuses ambiguous projects.

@@ -1,0 +1,10 @@
+# The JDKs a build tool runs under, by the tool's name in toolchains.toml (`jdk = "gradle"`).
+# `min` and `max` are the Java feature versions it works with; `prefer` is the one chosen when
+# several are installed, else the newest within the range. Gradle's wrapper versions differ in how far
+# up they go (9.3.1 tolerated 27 with warnings, 9.4.1 stopped on "Unsupported class file major
+# version 71"), so `max` is the newest one known to be safe, not the newest one that sometimes works.
+[[range]]
+name = "gradle"
+min = 17
+max = 25
+prefer = 21

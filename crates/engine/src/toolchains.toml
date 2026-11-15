@@ -18,9 +18,23 @@ found_by = ["Cargo.toml"]
 build = ["cargo", "build", "--quiet"]
 test = ["cargo", "test", "--quiet"]
 
+# A React Native app builds its Android project with Gradle, not with its package.json (which has
+# no `build` script out of the box, and whose `react-native build-android` makes an app bundle
+# unless told otherwise). Before Node.js, which any package.json names. Its own Gradle wrapper
+# is in android/, and the project is told to Gradle with `-p android`.
+[[toolchain]]
+name = "React Native (Android)"
+found_by = ["android/settings.gradle", "android/settings.gradle.kts"]
+uses = ["react-native"]
+jdk = "gradle"
+build = ["gradle", "-p", "android", "-q", "assembleDebug"]
+test = ["gradle", "-p", "android", "-q", "testDebugUnitTest"]
+local_programs = ["android/gradlew", "android/gradlew.bat"]
+
 [[toolchain]]
 name = "Node.js"
 found_by = ["package.json"]
+script_build = true
 build = ["npm", "run", "build", "--if-present"]
 test = ["npm", "test"]
 test_script = "test"
@@ -71,10 +85,13 @@ local_programs = ["mvnw", "mvnw.cmd"]
 launch = [{ file = "target/*.jar", command = ["java", "-jar", "{file}"], runnable_jar = true }]
 
 # An Android app module (`app/src/main/AndroidManifest.xml`) builds a debug APK, which lands in
-# <module>/build/outputs/apk/debug/. Before plain Gradle, which would only `assemble` a jar.
+# <module>/build/outputs/apk/debug/. Before plain Gradle, which would only `assemble` a jar. A
+# Kotlin Multiplatform app keeps its Android manifest in `src/androidMain/` (the older layouts in
+# `src/main/`).
 [[toolchain]]
 name = "Android (Gradle)"
-found_by = ["*/src/main/AndroidManifest.xml"]
+found_by = ["*/src/main/AndroidManifest.xml", "*/src/androidMain/AndroidManifest.xml"]
+jdk = "gradle"
 build = ["gradle", "-q", "assembleDebug"]
 test = ["gradle", "-q", "testDebugUnitTest"]
 local_programs = ["gradlew", "gradlew.bat"]
