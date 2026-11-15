@@ -215,6 +215,8 @@ pub enum Done {
     },
     /// The game engines on this computer were listed.
     GameEngines(craft_anything_engines::game::Inventory),
+    /// Which Android SDK was found (or that none was).
+    AndroidSdk(engine_ui::AndroidSdkFacts),
     /// What engine made the game at `path`.
     GameFound {
         path: PathBuf,
@@ -538,6 +540,10 @@ pub struct CraftApp {
     pub kinds: craft_anything_ai::rebuild::KindRegistry,
     /// Game engines on this computer (`None` until the first look finishes).
     pub game_engines: Option<craft_anything_engines::game::Inventory>,
+    /// Which Android SDK is on this computer (`None` until the first look finishes), and whether a
+    /// look is running.
+    pub android_sdk: Option<engine_ui::AndroidSdkFacts>,
+    pub android_sdk_checking: bool,
     /// Which asset providers have a key set up, by provider id (`None` until checked; the keys
     /// themselves never come into the app).
     pub asset_keys: Option<std::collections::BTreeMap<String, bool>>,
@@ -657,6 +663,8 @@ impl CraftApp {
             previews: Default::default(),
             kinds: craft_anything_ai::rebuild::KindRegistry::built_in(),
             game_engines: None,
+            android_sdk: None,
+            android_sdk_checking: false,
             asset_keys: None,
             backend_keys: None,
             backend_keys_request: 0,
@@ -1772,6 +1780,7 @@ impl CraftApp {
             Done::PicturesChecked { files, refused, target } => self.pictures_checked(files, refused, target),
             Done::Attached { root, text, attachments, files } => self.deliver(root, text, attachments, files),
             Done::GameEngines(inv) => self.engines_found(inv),
+            Done::AndroidSdk(facts) => self.android_sdk_found(facts),
             Done::GameFound { path, found } => {
                 // Only if that game is still the one picked.
                 if self.state.make.target == (craft_anything_engine::workspace::TargetRef::Local { path }) {

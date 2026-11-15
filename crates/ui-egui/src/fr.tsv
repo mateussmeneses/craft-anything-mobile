@@ -1477,3 +1477,9 @@ Couldn't change the approvals:	Impossible de modifier les autorisations :
 What the builder may do without asking you, in this project.	Ce que le constructeur peut faire sans vous demander, dans ce projet.
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	Par défaut suit le mode automatique : activé, ce qui peut être annulé se fait et le reste est refusé ; désactivé, le constructeur demande.
 Connecting to {name}… {seconds} s	Connexion à {name}… {seconds} s
+Look for the Android SDK	Chercher le SDK Android
+Build tools {version}	Outils de compilation {version}
+No build tools found	Aucun outil de compilation trouvé
+bundletool is here	bundletool est présent
+bundletool is missing	bundletool est absent
+Install Android Studio, or set the adb path below.	Installez Android Studio, ou indiquez le chemin d'adb ci-dessous.

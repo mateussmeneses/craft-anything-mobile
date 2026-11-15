@@ -35,6 +35,27 @@ pub struct Flow {
     pub start_after: bool,
 }
 
+/// What `engines_android_sdk_check` found, as the Engines page shows it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AndroidSdkFacts {
+    /// The SDK folder; `None` when no SDK was found.
+    pub root: Option<PathBuf>,
+    /// The newest build-tools version holding aapt2, apksigner or zipalign.
+    pub build_tools: Option<String>,
+    /// Whether the bundletool engine is here.
+    pub bundletool: bool,
+}
+
+impl AndroidSdkFacts {
+    /// Read the tool's `result`: only its typed fields, never its text.
+    pub fn from_result(result: &serde_json::Value) -> Self {
+        let root = result["sdk"]["root"].as_str().map(PathBuf::from);
+        let found = &result["build_tools_found"];
+        let build_tools = ["aapt2", "apksigner", "zipalign"].iter().find_map(|id| found[*id]["version"].as_str()).map(str::to_string);
+        Self { root, build_tools, bundletool: found["bundletool"].is_string() }
+    }
+}
+
 impl CraftApp {
     /// Look for game engines again (in the background; skipped while a look is running).
     pub fn refresh_game_engines(&mut self) {
@@ -50,6 +71,29 @@ impl CraftApp {
         self.game_engines = Some(inv);
         self.engine_flow.checking = false;
         self.engine_flow.checked_at = Some(Instant::now());
+    }
+
+    /// Look for the Android SDK again (in the background, through `engines_android_sdk_check`;
+    /// skipped while a look is running). A failed look shows as "none found".
+    pub fn refresh_android_sdk(&mut self) {
+        if self.android_sdk_checking {
+            return;
+        }
+        self.android_sdk_checking = true;
+        let engine = self.engine.clone();
+        self.jobs.spawn("Look for the Android SDK", false, move |j| {
+            let opts = CallOptions::new(Caller::Ui).with_cancel(j.cancel.clone());
+            let facts = match engine.call("engines_android_sdk_check", serde_json::json!({}), opts) {
+                Ok(out) => AndroidSdkFacts::from_result(out.to_json().get("result").unwrap_or(&serde_json::Value::Null)),
+                Err(_) => AndroidSdkFacts::default(),
+            };
+            Ok(Done::AndroidSdk(facts))
+        });
+    }
+
+    pub fn android_sdk_found(&mut self, facts: AndroidSdkFacts) {
+        self.android_sdk = Some(facts);
+        self.android_sdk_checking = false;
     }
 
     /// Look up which engine made the game the person just picked.
@@ -961,6 +1005,37 @@ pub fn settings_section(app: &mut CraftApp, ui: &mut Ui) {
         ui.label(RichText::new(b.name()).font(theme::semibold(theme::SMALL)));
         status_line(app, ui, b, true);
         ui.add_space(8.0);
+    }
+}
+
+/// Settings → Engines: which Android SDK was found (its folder) or that none was, the build-tools
+/// version and whether bundletool is here. Draws the last result; the look runs on a worker.
+pub fn android_sdk_status(app: &mut CraftApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
+    if app.android_sdk.is_none() && !app.headless {
+        app.refresh_android_sdk();
+    }
+    ui.label(RichText::new(tr("Android SDK on this computer")).font(theme::semibold(theme::SMALL)));
+    let Some(f) = &app.android_sdk else {
+        ui.label(RichText::new(tr("Looking on this computer…")).color(t.text_faint).size(theme::CAPTION));
+        return;
+    };
+    let faint = |text: String| egui::Label::new(RichText::new(text).color(t.text_faint).size(theme::CAPTION)).wrap();
+    match &f.root {
+        Some(root) => {
+            widgets::pill(ui, "Found on this computer", t.success, t.raised);
+            ui.add(faint(root.display().to_string()));
+            let tools = match &f.build_tools {
+                Some(v) => trf("Build tools {version}", &[("version", v)]),
+                None => tr("No build tools found"),
+            };
+            let bundletool = if f.bundletool { tr("bundletool is here") } else { tr("bundletool is missing") };
+            ui.add(faint(format!("{tools} · {bundletool}")));
+        }
+        None => {
+            widgets::pill(ui, "Not installed", t.warning, t.raised);
+            ui.add(faint(tr("Install Android Studio, or set the adb path below.")));
+        }
     }
 }
 

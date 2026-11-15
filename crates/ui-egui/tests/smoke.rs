@@ -3332,3 +3332,71 @@ fn a_very_long_app_file_name_keeps_start_inside_the_window() {
     let start = h.get_by_label("Start").rect();
     assert!(start.left() >= 0.0 && start.right() <= content.right(), "Start ({start:?}) stays inside the window ({content:?})");
 }
+
+/// An Android SDK folder with stand-in files (nothing here is ever run): platform tools with an adb,
+/// one build-tools version holding aapt2, and a stand-in bundletool outside it.
+fn fake_android_sdk() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let sdk = tempfile::Builder::new().prefix("sdk").tempdir().unwrap();
+    let dir = |rel: &str, revision: &str| {
+        let d = sdk.path().join(rel);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("source.properties"), format!("Pkg.Revision={revision}\n")).unwrap();
+        d
+    };
+    let tools = dir("platform-tools", "37.0.0");
+    dir("platforms/android-36", "2");
+    let build = dir("build-tools/36.1.0", "36.1.0");
+    let adb = tools.join(if cfg!(windows) { "adb.exe" } else { "adb" });
+    std::fs::write(&adb, b"stand-in").unwrap();
+    std::fs::write(build.join("aapt2"), b"stand-in").unwrap();
+    let bundletool = sdk.path().join("bundletool.jar");
+    std::fs::write(&bundletool, b"stand-in").unwrap();
+    (sdk, adb, bundletool)
+}
+
+/// An app on the Engines page whose session finds only what `configure` names.
+fn engines_page(configure: impl FnOnce(&mut craft_anything_engine::Session) + 'static) -> Harness<'static, CraftApp> {
+    harness_sized(egui::vec2(1280.0, 2400.0), move || {
+        let mut s = craft_anything_engine::testing::session();
+        s.settings.first_run_done = true;
+        s.settings.language = "en".into();
+        configure(&mut s);
+        let mut a = demo::app(std::sync::Arc::new(craft_anything_engine::Engine::new(s)));
+        a.state.settings_open = true;
+        a.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Engines;
+        // A demo app is headless and doesn't look by itself; this one is asked to, on its worker.
+        a.refresh_android_sdk();
+        a
+    })
+}
+
+#[test]
+fn engines_page_says_which_android_sdk_was_found() {
+    let (sdk, adb, bundletool) = fake_android_sdk();
+    let mut h = engines_page(move |s| {
+        s.settings.engines.tools.adb = Some(adb);
+        s.settings.engines.tools.bundletool = Some(bundletool);
+    });
+    h.run_steps(2);
+    assert!(wait(&mut h, |a| a.android_sdk.is_some()), "the SDK look should finish");
+    h.run_steps(2);
+    let facts = h.state().android_sdk.clone().unwrap();
+    assert_eq!(facts.root.as_deref().map(|p| p.file_name().map(|n| n.to_owned())), Some(sdk.path().file_name().map(|n| n.to_owned())));
+    assert_eq!(facts.build_tools.as_deref(), Some("36.1.0"));
+    assert!(facts.bundletool);
+    h.get_by_label("Found on this computer");
+    h.get_by_label(&facts.root.unwrap().display().to_string());
+    h.get_by_label("Build tools 36.1.0 · bundletool is here");
+    assert!(h.query_by_label("Install Android Studio, or set the adb path below.").is_none());
+}
+
+#[test]
+fn engines_page_says_when_no_android_sdk_was_found() {
+    let mut h = engines_page(|_| {});
+    h.run_steps(2);
+    assert!(wait(&mut h, |a| a.android_sdk.is_some()), "the SDK look should finish");
+    h.run_steps(2);
+    assert_eq!(h.state().android_sdk, Some(Default::default()));
+    h.get_by_label("Install Android Studio, or set the adb path below.");
+    assert!(h.query_by_label("Found on this computer").is_none());
+}

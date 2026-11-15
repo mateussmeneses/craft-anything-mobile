@@ -84,7 +84,8 @@ const ACTIONS: &[Action] = &[
 
     // ---- Engines, Deep mode and assets --------------------------------------------------------
     a("refresh_game_engines","which game engines are on this computer",        Tool(&["engines_list"])),
-    a("get_engine",          "download or install a game engine",              Tool(&["engines_install"])),
+    a("refresh_android_sdk", "which Android SDK is on this computer",          Tool(&["engines_android_sdk_check"])),
+    a("get_engine",         "download or install a game engine",              Tool(&["engines_install"])),
     a("get_ghidra",          "download Ghidra for Deep mode",                  Tool(&["engines_install"])),
     a("detect_game_engine",  "find the engine the original game was made with", Cli("rebuild <target> <request>")),
     a("set_deep",            "Clean room or Deep mode (Ghidra)",               Tool(&["settings_set"])),
@@ -154,7 +155,7 @@ const PLUMBING: &[(&str, &str)] = &[
     ("act", "runs a button's tool on a worker (play, preview, open folder)"),
     ("waiting_question", "finds the question an answer is for"),
     ("acted", "shows a button tool's result (toast, open the preview)"),
-    ("engines_found", "a job's result"), ("engine_got", "a job's result"), ("ghidra_got", "a job's result"),
+    ("engines_found", "a job's result"), ("android_sdk_found", "a job's result"), ("engine_got", "a job's result"), ("ghidra_got", "a job's result"),
     ("ghidra_ready", "a query"), ("ghidra_missing", "a query"),
     ("load_prefs", "startup"), ("after_first_frames", "startup"), ("install_menu_bar", "startup; its items run palette commands"), ("log", "the log panel"), ("toast", "a message"),
     ("check_pictures", "a picture-size preflight"), ("picture_check_finished", "a preflight's result"),

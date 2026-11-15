@@ -2741,7 +2741,9 @@ Owner: open · Status: in progress
       an `adb_emulators_list` field), and have the Android checks (R6.4/R6.5) ask for a profile by id
 - [ ] A way to create a virtual device for a profile that no existing one fits (needs `avdmanager`;
       consent, no emulator start); more profiles (foldable, small tablet) once a check needs them
-- [ ] Say in the Engines settings page which SDK was found
+- [x] Say in the Engines settings page which SDK was found (its folder or that none was, the
+      build-tools version, whether bundletool is here; looked up on a worker through
+      `engines_android_sdk_check`; tested with a fake SDK, not looked at in a real window)
 
 ### R6.2 Android packages beyond one APK
 Owner: open · Status: in progress
