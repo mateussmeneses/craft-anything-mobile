@@ -1259,7 +1259,7 @@ What's inside this archive?	Bu arşivin içinde ne var?
 Whatever Settings → AI builds with.	Ayarlar → AI neyle derliyorsa onunla.
 When a folder you pick has files	Seçtiğiniz klasörde dosyalar olduğunda
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	Oluşturucu bir seçim gerektirdiğinde: size gösterip beklesin mi, yoksa kendi karar verip neyi seçtiğini söylesin mi? Her proje kendi istem kutusunun altından seçim yapabilir.
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	Bir uygulamayı veya oyunu yeniden derlerken, penceresini görüntülemek ve yeniden derlemeyi onunla karşılaştırmak için bir kez başlatın. O programı çalıştırır.
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	Bir uygulamayı veya oyunu yeniden derlerken, penceresini görüntülemek ve yeniden derlemeyi onunla karşılaştırmak için bir kez başlatın; bir Android uygulaması bağlı bir cihaza veya emülatöre yüklenir ve ekranlarında dokunarak gezinilir. O programı çalıştırır.
 Where am I	Neredeyim
 Where is Ghidra installed?	Ghidra nereye kurulu?
 Where is the program?	Program nerede?

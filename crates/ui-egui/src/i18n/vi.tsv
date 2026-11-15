@@ -1259,7 +1259,7 @@ What's inside this archive?	Bên trong tệp nén này có gì?
 Whatever Settings → AI builds with.	Bất cứ thứ gì Cài đặt → AI dùng để xây dựng.
 When a folder you pick has files	Khi thư mục bạn chọn có sẵn tệp
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	Khi trình xây dựng cần một lựa chọn: hiện cho bạn và chờ, hoặc để nó tự quyết rồi cho bạn biết nó đã chọn gì. Mỗi dự án có thể tự chọn ngay dưới ô lời nhắc.
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	Khi bạn dựng lại một ứng dụng hoặc trò chơi, hãy chạy bản gốc một lần để chụp cửa sổ của nó và so sánh với bản dựng lại. Việc này sẽ chạy chương trình đó.
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	Khi bạn dựng lại một ứng dụng hoặc trò chơi, hãy chạy bản gốc một lần để chụp cửa sổ của nó và so sánh với bản dựng lại; ứng dụng Android được cài lên thiết bị hoặc trình giả lập đang kết nối và các màn hình của nó được chạm qua lần lượt. Việc này sẽ chạy chương trình đó.
 Where am I	Tôi đang ở đâu
 Where is Ghidra installed?	Ghidra được cài ở đâu?
 Where is the program?	Chương trình nằm ở đâu?

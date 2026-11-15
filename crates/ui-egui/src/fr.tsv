@@ -733,7 +733,7 @@ Keep going without asking	Continuer sans demander
 The builder's questions	Les questions du constructeur
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	Quand le constructeur a un choix à faire : vous le montrer et attendre, ou le laisser décider et dire ce qu'il a choisi. Chaque projet peut choisir sous sa zone de saisie.
 Study apps by running them	Étudier les applications en les lançant
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	Quand vous reconstruisez une application ou un jeu, la lancer une fois pour capturer sa fenêtre et y comparer la reconstruction. Cela exécute ce programme.
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	Quand vous reconstruisez une application ou un jeu, la lancer une fois pour capturer sa fenêtre et y comparer la reconstruction ; une application Android est installée sur un appareil ou un émulateur connecté et ses écrans sont parcourus par des touchers. Cela exécute ce programme.
 Run on Android	Lancer sur Android
 Run to study	Lancer pour étudier
 Allowed in	Autorisé dans

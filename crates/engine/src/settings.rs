@@ -114,8 +114,9 @@ pub struct Settings {
     /// none follows Auto mode (decide when it's on, ask when it's off).
     pub questions: Option<crate::workspace::Questions>,
     /// Study an app or game target by running it once and picturing its window
-    /// (`native_window_capture` into capture/window.png). Off by default: it runs the person's
-    /// program.
+    /// (`native_window_capture` into capture/window.png); an Android app (a single APK) is
+    /// installed on a connected device or emulator and its screens are tapped through, into
+    /// capture/android-walkthrough/. Off by default: it runs the person's program.
     pub runtime_study: bool,
     /// Recently opened projects and targets.
     pub recent: Vec<PathBuf>,

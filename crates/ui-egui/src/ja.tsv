@@ -770,7 +770,7 @@ What's inside this archive?	このアーカイブの中身は?
 Whatever Settings → AI builds with.	設定 → AI でビルドに使うもの。
 When a folder you pick has files	選んだフォルダにファイルがある場合
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	ビルダーに選択が必要なとき: あなたに見せて待つか、自分で決めて選んだ内容を伝えるか。プロジェクトごとに、入力欄の下で選べます。
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	アプリやゲームを再構築するとき、一度起動してウィンドウを撮影し、再構築と比較します。そのプログラムを実行します。
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	アプリやゲームを再構築するとき、一度起動してウィンドウを撮影し、再構築と比較します。Android アプリは接続されたデバイスまたはエミュレーターにインストールし、画面をタップして順に見ていきます。そのプログラムを実行します。
 Where is Ghidra installed?	Ghidra はどこにインストールされていますか?
 Where should new projects go?	新しいプロジェクトはどこに保存しますか?
 Where we found it	見つけた場所

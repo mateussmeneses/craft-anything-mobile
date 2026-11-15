@@ -1259,7 +1259,7 @@ What's inside this archive?	¿Qué hay dentro de este archivo comprimido?
 Whatever Settings → AI builds with.	Con lo que sea que construya Configuración → IA.
 When a folder you pick has files	Cuando una carpeta que eliges tiene archivos
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	Cuando el constructor necesita que se tome una decisión: mostrártela y esperar, o dejarlo decidir y decir qué eligió. Cada proyecto puede elegir por su cuenta debajo de su caja de texto.
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	Cuando reconstruyes una app o un juego, arráncalo una vez para fotografiar su ventana y comparar la reconstrucción con ella. Eso ejecuta ese programa.
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	Cuando reconstruyes una app o un juego, arráncalo una vez para fotografiar su ventana y comparar la reconstrucción con ella; una app de Android se instala en un dispositivo o emulador conectado y se recorren sus pantallas tocándolas. Eso ejecuta ese programa.
 Where am I	Dónde estoy
 Where is Ghidra installed?	¿Dónde está instalado Ghidra?
 Where is the program?	¿Dónde está el programa?

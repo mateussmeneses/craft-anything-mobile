@@ -1259,7 +1259,7 @@ What's inside this archive?	這個封存檔裡有什麼？
 Whatever Settings → AI builds with.	使用設定 → AI 中的建置助手。
 When a folder you pick has files	選擇的資料夾已有檔案時
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	建置助手需要做出選擇時：顯示問題並等候你回答，或自行決定並說明選擇。每個專案都可在輸入框下方單獨設定。
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	重建應用程式或遊戲時，先啟動原作一次以擷取其視窗，並與重建結果比較。這會執行該程式。
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	重建應用程式或遊戲時，先啟動原作一次以擷取其視窗，並與重建結果比較；Android 應用程式會安裝到已連線的裝置或模擬器上，並逐一點按瀏覽其畫面。這會執行該程式。
 Where am I	目前位置
 Where is Ghidra installed?	Ghidra 安裝在哪裡？
 Where is the program?	程式在哪裡？

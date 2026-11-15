@@ -1259,7 +1259,7 @@ What's inside this archive?	Co je uvnitř tohoto archivu?
 Whatever Settings → AI builds with.	Ten, který je pro sestavování zvolen v Nastavení → AI.
 When a folder you pick has files	Když vybraná složka obsahuje soubory
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	Když se sestavovací agent potřebuje rozhodnout: zeptat se vás a počkat, nebo rozhodnout samostatně a sdělit svou volbu. Každý projekt to může nastavit zvlášť pod polem zadání.
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	Při rekonstrukci aplikace nebo hry ji jednou spustí, pořídí snímek okna a porovná s ním rekonstrukci. Skutečně spustí daný program.
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	Při rekonstrukci aplikace nebo hry ji jednou spustí, pořídí snímek okna a porovná s ním rekonstrukci; aplikaci pro Android nainstaluje do připojeného zařízení nebo emulátoru a projde její obrazovky klepáním. Skutečně spustí daný program.
 Where am I	Kde jsem
 Where is Ghidra installed?	Kde je nainstalována Ghidra?
 Where is the program?	Kde je program?

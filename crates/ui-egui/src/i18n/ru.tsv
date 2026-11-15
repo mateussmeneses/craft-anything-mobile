@@ -1259,7 +1259,7 @@ What's inside this archive?	Что внутри этого архива?
 Whatever Settings → AI builds with.	То, что указано в Настройки → ИИ для сборки.
 When a folder you pick has files	Когда выбранная вами папка содержит файлы
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	Когда конструктору нужно сделать выбор: показать его вам и ждать, или решить самому и сообщить, что он выбрал. Каждый проект может выбрать сам под полем ввода.
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	Когда вы пересобираете приложение или игру, запустите её один раз, чтобы запечатлеть её окно и сравнить пересборку с ним. Она запускает эту программу.
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	Когда вы пересобираете приложение или игру, запустите её один раз, чтобы запечатлеть её окно и сравнить пересборку с ним; Android-приложение устанавливается на подключённое устройство или эмулятор, и его экраны проходятся касаниями. Она запускает эту программу.
 Where am I	Где я
 Where is Ghidra installed?	Где установлен Ghidra?
 Where is the program?	Где находится программа?

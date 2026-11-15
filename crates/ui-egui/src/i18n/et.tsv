@@ -1259,7 +1259,7 @@ What's inside this archive?	Mis selle arhiivi sees on?
 Whatever Settings → AI builds with.	Millega iganes Seaded → AI ehitab.
 When a folder you pick has files	Kui valitud kaustas on faile
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	Kui ehitaja vajab otsust: näita seda sulle ja oota või lase tal otsustada ja öelda, mida valis. Iga projekt saab selle valida oma viiba kasti all.
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	Kui ehitad rakenduse või mängu uuesti, käivita see üks kord, et teha selle aknast pilt ja võrrelda taasehitust sellega. See käivitab selle programmi.
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	Kui ehitad rakenduse või mängu uuesti, käivita see üks kord, et teha selle aknast pilt ja võrrelda taasehitust sellega; Androidi rakendus paigaldatakse ühendatud seadmesse või emulaatorisse ja selle ekraanid läbitakse puudutustega. See käivitab selle programmi.
 Where am I	Kus ma olen
 Where is Ghidra installed?	Kuhu on Ghidra paigaldatud?
 Where is the program?	Kus on programm?

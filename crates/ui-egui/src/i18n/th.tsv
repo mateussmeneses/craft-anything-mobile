@@ -1259,7 +1259,7 @@ What's inside this archive?	มีอะไรในไฟล์เก็บน�
 Whatever Settings → AI builds with.	สิ่งที่การตั้งค่า → AI ใช้สร้าง
 When a folder you pick has files	เมื่อโฟลเดอร์ที่เลือกมีไฟล์
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	เมื่อตัวสร้างต้องตัดสินใจ: แสดงให้คุณและรอ หรือปล่อยให้ตัดสินใจแล้วบอก แต่ละโปรเจกต์เลือกเองได้ใต้กล่องพรอมป์
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	เมื่อสร้างแอปหรือเกมใหม่ เริ่มมันหนึ่งครั้งเพื่อจับภาพหน้าต่างและเทียบกับของใหม่ มันจะรันโปรแกรมนั้น
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	เมื่อสร้างแอปหรือเกมใหม่ เริ่มมันหนึ่งครั้งเพื่อจับภาพหน้าต่างและเทียบกับของใหม่ ส่วนแอป Android จะถูกติดตั้งบนอุปกรณ์หรืออีมูเลเตอร์ที่เชื่อมต่ออยู่ แล้วแตะไล่ดูหน้าจอต่าง ๆ มันจะรันโปรแกรมนั้น
 Where am I	ฉันอยู่ที่ไหน
 Where is Ghidra installed?	ติดตั้ง Ghidra ไว้ที่ไหน?
 Where is the program?	โปรแกรมอยู่ที่ไหน?

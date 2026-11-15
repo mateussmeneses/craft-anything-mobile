@@ -1259,7 +1259,7 @@ What's inside this archive?	这个归档文件里有什么？
 Whatever Settings → AI builds with.	使用设置 → AI 中的构建助手。
 When a folder you pick has files	选择的文件夹已有文件时
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	构建助手需要做出选择时：展示问题并等待你回答，或自行决定并说明选择。每个项目都可在输入框下方单独设置。
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	重建应用或游戏时，先启动原作一次以截取其窗口，并与重建结果比较。这会运行该程序。
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	重建应用或游戏时，先启动原作一次以截取其窗口，并与重建结果比较；Android 应用会安装到已连接的设备或模拟器上，并逐一点按浏览其界面。这会运行该程序。
 Where am I	当前位置
 Where is Ghidra installed?	Ghidra 安装在哪里？
 Where is the program?	程序在哪里？

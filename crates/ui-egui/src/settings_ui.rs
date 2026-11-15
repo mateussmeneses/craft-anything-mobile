@@ -1106,7 +1106,7 @@ fn safety(app: &mut CraftApp, ui: &mut Ui) {
     row(
         ui,
         "Study apps by running them",
-        "When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.",
+        "Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.",
         |ui| {
             if widgets::toggle(ui, &mut app.settings.runtime_study, "Run to study").changed() {
                 app.settings_changed();

@@ -1273,7 +1273,7 @@ What's inside this archive?	რა არის ამ არქივში?
 Whatever Settings → AI builds with.	რითაც აწყობს „პარამეტრები → AI“.
 When a folder you pick has files	როცა თქვენ მიერ არჩეულ საქაღალდეში ფაილებია
 When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	როცა შემქმნელს არჩევანის გაკეთება სჭირდება: გაჩვენოთ და დაელოდოს, თუ თავად გადაწყვიტოს და თქვას, რა აირჩია. ყოველ პროექტს შეუძლია თავისთვის აირჩიოს მოთხოვნის ველის ქვეშ.
-When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	აპის ან თამაშის ხელახლა აწყობისას ერთხელ გაუშვით ის, რომ მისი ფანჯრის სურათი გადაიღოს და ხელახალი აწყობა მას შეადაროს. ეს იმ პროგრამას უშვებს.
+Start an app or game once to picture its window, or put an Android app on a device or emulator and tap through it, to compare the rebuild with it. It runs that program.	აპის ან თამაშის ხელახლა აწყობისას ერთხელ გაუშვით ის, რომ მისი ფანჯრის სურათი გადაიღოს და ხელახალი აწყობა მას შეადაროს; Android-აპი დაყენდება დაკავშირებულ მოწყობილობაზე ან ემულატორზე და მისი ეკრანები შეხებით გაივლება. ეს იმ პროგრამას უშვებს.
 Where am I	სად ვარ
 Where is Ghidra installed?	სად არის Ghidra დაყენებული?
 Where is the program?	სად არის პროგრამა?
