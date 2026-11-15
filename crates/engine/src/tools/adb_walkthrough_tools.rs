@@ -9,7 +9,12 @@
 //!
 //! Typed text is kept in the file so the walk can be repeated, except a step marked `secret` and
 //! any text typed while the focused field looked like a password (marked as one, or named or hinted
-//! as a password, PIN or code): those are kept out, with only their length.
+//! as a password, PIN or code) or while the screen couldn't be read: those are kept out, with only
+//! their length.
+//!
+//! A walk can be recorded a few steps at a time (`append`): the caller looks at the last capture,
+//! chooses the next steps and adds them. The file that comes of it is the one a single recording
+//! of all the steps writes, so the replay reads both alike.
 
 use super::adb_tools::{adb_for, dev_ev, ensure_online, screencap, serial_of};
 use super::adb_ui_tools::{DUMP_TIMEOUT, read_screen};
@@ -41,14 +46,16 @@ const STEP_TIMEOUT: Duration = Duration::from_secs(30);
 /// Longest walkthrough name.
 const MAX_NAME: usize = 120;
 /// Words that mark a field as one for a secret, in its id, hint or description.
-const SECRET_WORDS: &[&str] = &["pass", "pwd", "pin", "secret", "otp", "cvv", "cvc", "security code", "token", "senha", "contraseña"];
+use craft_anything_engines::android_walk::SECRET_WORDS;
+/// Longest `by` (who recorded a walk).
+const MAX_BY: usize = 40;
 
 pub fn specs() -> Vec<ToolSpec> {
     vec![
         spec(
             WALKTHROUGH_TOOL,
             "Record a walkthrough",
-            "Send a list of steps to a device (the same steps as adb_input_send: tap, long_press, swipe, text, key, wait) and save, before the first step and after each one but a wait, a picture of the screen (step-NN.png) and its controls (step-NN.json, as adb_ui_show reads them), with walkthrough.json saying each step and what came of it. output_directory must be absolute and must not exist yet. settle_ms (default 1000, at most 10000) is how long the screen is given after each step. Typed text is kept in walkthrough.json so the walk can be repeated, except a text step marked secret and any text typed into a field that looks like a password. A step the device refuses ends the walk there; what was recorded so far is kept and says where it stopped. Changes the device.",
+            "Send a list of steps to a device (the same steps as adb_input_send: tap, long_press, swipe, text, key, wait) and save, before the first step and after each one but a wait, a picture of the screen (step-NN.png) and its controls (step-NN.json, as adb_ui_show reads them), with walkthrough.json saying each step and what came of it. output_directory must be absolute and must not exist yet. With `append`, output_directory is instead a walk this tool recorded on the same device and finished: the new steps are added to it (no capture before the first, since the last one saved is that screen), its file comes out as one recording of all the steps would, and a walk may hold at most 50 steps. `by` says who recorded it (a short word, kept in the file; set on the first recording only). settle_ms (default 1000, at most 10000) is how long the screen is given after each step. Typed text is kept in walkthrough.json so the walk can be repeated, except a text step marked secret and any text typed into a field that looks like a password or while the screen couldn't be read. A step the device refuses ends the walk there; what was recorded so far is kept and says where it stopped. Changes the device.",
             "Go through an app step by step and save a picture of every screen on the way.",
             Toolset::Adb,
             Effects::MUTATES_SESSION
@@ -95,6 +102,12 @@ struct WalkParams {
     /// How long the screen is given to settle after each step, in milliseconds (default 1000).
     #[serde(default)]
     settle_ms: Option<u32>,
+    /// Add the steps to the finished walk in output_directory instead of starting a new one.
+    #[serde(default)]
+    append: bool,
+    /// Who records it (letters, digits, `-`, `_`; e.g. `study`). Kept in the file.
+    #[serde(default)]
+    by: Option<String>,
 }
 
 /// Whether a field looks like one for a secret: marked as a password, or named, hinted or
@@ -171,8 +184,8 @@ fn capture(adb: &Adb, serial: &str, dir: &Path, index: usize, step: Value, tree_
     }))
 }
 
-fn manifest(name: Option<&str>, serial: &str, settle_ms: u32, walk: &Walk) -> Value {
-    json!({
+fn manifest(name: Option<&str>, by: Option<&str>, serial: &str, settle_ms: u32, walk: &Walk) -> Value {
+    let mut doc = json!({
         "format": FORMAT,
         "version": VERSION,
         "name": name,
@@ -182,7 +195,69 @@ fn manifest(name: Option<&str>, serial: &str, settle_ms: u32, walk: &Walk) -> Va
         "captures": walk.captures,
         "complete": walk.stopped.is_none(),
         "stopped": walk.stopped,
-    })
+    });
+    // Who recorded it, when the caller said: an additive field older files don't have.
+    if let (Some(by), Value::Object(m)) = (by, &mut doc) {
+        m.insert("by".into(), json!(by));
+    }
+    doc
+}
+
+/// Whether the walk saved in `doc` can take `more` steps on `serial`: one this tool wrote, in this
+/// version, on the same device, finished, and within the step limit with them.
+fn appendable(doc: &Value, serial: &str, more: usize) -> Result<(), ToolError> {
+    if doc.get("format").and_then(Value::as_str) != Some(FORMAT) {
+        return Err(ToolError::invalid("output_directory holds no walkthrough adb_walkthrough_record wrote, so nothing can be added to it."));
+    }
+    match doc.get("version").and_then(Value::as_u64) {
+        Some(v) if v == u64::from(VERSION) => {}
+        v => return Err(ToolError::invalid(format!("This adds to walkthrough version {VERSION}; the file says {v:?}."))),
+    }
+    if doc.get("replay_of").is_some() {
+        return Err(ToolError::invalid("That folder is a replay; steps are added to a recording."));
+    }
+    if doc.get("serial").and_then(Value::as_str) != Some(serial) {
+        return Err(ToolError::invalid(format!(
+            "That walk was recorded on another device ({}); add to it on the same one.",
+            doc.get("serial").and_then(Value::as_str).unwrap_or("unknown")
+        )));
+    }
+    if doc.get("complete").and_then(Value::as_bool) != Some(true) {
+        return Err(ToolError::invalid("That walk ended early, so the screen it stopped on isn't known; record a new one."));
+    }
+    let (Some(steps), Some(captures)) = (doc.get("steps").and_then(Value::as_array), doc.get("captures").and_then(Value::as_array)) else {
+        return Err(ToolError::invalid("That walk lists no steps or captures to add to."));
+    };
+    if captures.is_empty() {
+        return Err(ToolError::invalid("That walk has no capture of its first screen; record a new one."));
+    }
+    let total = steps.len().saturating_add(more);
+    if total > android_input::MAX_STEPS {
+        return Err(ToolError::invalid(format!(
+            "A walk holds at most {} steps (it is replayed in one go); this one has {} and {more} more were given.",
+            android_input::MAX_STEPS,
+            steps.len()
+        )));
+    }
+    Ok(())
+}
+
+/// The walk in `old` with what `more` did after it: the file one recording of all the steps writes.
+fn extend_manifest(old: &Value, settle_ms: u32, more: &Walk) -> Value {
+    let list = |k: &str| old.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
+    let all = Walk {
+        steps: list("steps").into_iter().chain(more.steps.iter().cloned()).collect(),
+        captures: list("captures").into_iter().chain(more.captures.iter().cloned()).collect(),
+        stopped: more.stopped.clone(),
+        secrets: more.secrets,
+    };
+    manifest(
+        old.get("name").and_then(Value::as_str),
+        old.get("by").and_then(Value::as_str),
+        old.get("serial").and_then(Value::as_str).unwrap_or_default(),
+        settle_ms,
+        &all,
+    )
 }
 
 /// What a walk on the device came to.
@@ -196,6 +271,9 @@ struct Walk {
 
 /// Send `steps` one by one, capturing the screen before the first and after each but a wait.
 /// A text step whose `keep_out` is true is kept out of the record whatever the screen shows.
+/// `after` is how many captures the walk already has when steps are added to it: the screen is
+/// then read but not saved before the first step (the last capture is that screen), and the new
+/// captures carry on its numbering.
 #[allow(clippy::too_many_arguments)]
 fn walk(
     ctx: &mut Ctx<'_>,
@@ -206,9 +284,15 @@ fn walk(
     commands: &[Command],
     settle: Duration,
     keep_out: &[bool],
+    after: usize,
 ) -> Result<Walk, ToolError> {
     let mut tree: Option<UiTree> = None;
-    let mut captures = vec![capture(adb, serial, dir, 0, Value::Null, &mut tree)?];
+    let mut captures = Vec::new();
+    if after == 0 {
+        captures.push(capture(adb, serial, dir, 0, Value::Null, &mut tree)?);
+    } else {
+        tree = read_screen(adb, serial).ok();
+    }
     let mut stopped: Option<Value> = None;
     let mut secrets = 0usize;
     let mut kept = Vec::new();
@@ -223,7 +307,8 @@ fn walk(
         let secret = matches!(step, Step::Text { .. })
             && (matches!(step, Step::Text { secret: true, .. })
                 || keep_out.get(i).copied().unwrap_or(false)
-                || tree.as_ref().and_then(focused).is_some_and(looks_secret));
+                // A screen that couldn't be read may be a password's: its text is kept out too.
+                || tree.as_ref().is_none_or(|t| focused(t).is_some_and(looks_secret)));
         secrets = secrets.saturating_add(usize::from(secret));
         kept.push(recorded(step, secret));
         match command {
@@ -248,7 +333,7 @@ fn walk(
             }
         }
         std::thread::sleep(settle);
-        captures.push(capture(adb, serial, dir, captures.len(), recorded(step, secret), &mut tree)?);
+        captures.push(capture(adb, serial, dir, after.saturating_add(captures.len()), recorded(step, secret), &mut tree)?);
     }
     Ok(Walk { steps: kept, captures, stopped, secrets })
 }
@@ -272,18 +357,54 @@ fn adb_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     let serial = serial_of(&p.serial)?;
     let commands = android_input::commands(&p.steps)?;
     let settle_ms = p.settle_ms.unwrap_or(DEFAULT_SETTLE_MS);
-    let settle = check_settle(settle_ms)?;
+    check_settle(settle_ms)?;
     if p.name.as_ref().is_some_and(|n| n.len() > MAX_NAME || n.chars().any(char::is_control)) {
         return Err(ToolError::invalid(format!("name must be one line of at most {MAX_NAME} bytes.")));
     }
+    if p.by.as_ref().is_some_and(|b| b.is_empty() || b.len() > MAX_BY || !b.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')) {
+        return Err(ToolError::invalid(format!("by must be 1 to {MAX_BY} letters, digits, - or _.")));
+    }
+    // The walk being added to, read and checked before the device is touched.
+    let earlier = if p.append {
+        if p.name.is_some() || p.by.is_some() {
+            return Err(ToolError::invalid("name and by are set when a walk is first recorded; leave them out when adding to it."));
+        }
+        let given = Path::new(&p.output_directory);
+        if !given.is_absolute() {
+            return Err(ToolError::invalid("output_directory must be an absolute path."));
+        }
+        let file = given.join("walkthrough.json");
+        let doc: Value =
+            serde_json::from_slice(&read_capped(&file, MAX_SAVED)?).map_err(|e| ToolError::invalid(format!("{} isn't JSON: {e}", file.display())))?;
+        appendable(&doc, serial, p.steps.len())?;
+        Some(doc)
+    } else {
+        None
+    };
+    let settle_ms = match (&earlier, p.settle_ms) {
+        (Some(doc), None) => doc.get("settle_ms").and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok()).unwrap_or(settle_ms),
+        _ => settle_ms,
+    };
+    let settle = check_settle(settle_ms)?;
     let adb = adb_for(ctx)?.timeout(STEP_TIMEOUT.max(DUMP_TIMEOUT)).idle_timeout(STEP_TIMEOUT.max(DUMP_TIMEOUT));
     ensure_online(&adb, serial)?;
-    let dir = create_absent_dir(&p.output_directory)?;
-    let made = UnlessWritten::new(&dir);
-
-    let w = walk(ctx, &adb, serial, &dir, &p.steps, &commands, settle, &[])?;
-    let file = write_manifest(&dir, &manifest(p.name.as_deref(), serial, settle_ms, &w))?;
-    made.keep();
+    let (dir, file, w) = match &earlier {
+        Some(doc) => {
+            let dir = Path::new(&p.output_directory).to_path_buf();
+            let after = doc.get("captures").and_then(Value::as_array).map_or(0, Vec::len);
+            let w = walk(ctx, &adb, serial, &dir, &p.steps, &commands, settle, &[], after)?;
+            let file = write_manifest(&dir, &extend_manifest(doc, settle_ms, &w))?;
+            (dir, file, w)
+        }
+        None => {
+            let dir = create_absent_dir(&p.output_directory)?;
+            let made = UnlessWritten::new(&dir);
+            let w = walk(ctx, &adb, serial, &dir, &p.steps, &commands, settle, &[], 0)?;
+            let file = write_manifest(&dir, &manifest(p.name.as_deref(), p.by.as_deref(), serial, settle_ms, &w))?;
+            made.keep();
+            (dir, file, w)
+        }
+    };
     let Walk { captures, stopped, secrets, .. } = w;
 
     let problems: usize = captures.iter().map(|c| c["problems"].as_array().map_or(0, Vec::len)).sum();
@@ -313,9 +434,17 @@ fn adb_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         ctx,
         WALKTHROUGH_TOOL,
         serial,
-        json!({"serial": serial, "output_directory": dir, "name": p.name, "settle_ms": settle_ms, "steps": p.steps.len()}),
+        json!({"serial": serial, "output_directory": dir, "name": p.name, "by": p.by, "append": p.append, "settle_ms": settle_ms, "steps": p.steps.len()}),
     )
-    .result(json!({"file": file, "captures": captures.len(), "complete": stopped.is_none(), "stopped": stopped, "steps": steps_for_record}))
+    .result(json!({
+        "file": file,
+        "appended": p.append,
+        "captures": captures.len(),
+        "last_capture": captures.last(),
+        "complete": stopped.is_none(),
+        "stopped": stopped,
+        "steps": steps_for_record,
+    }))
     .summary(summary)
     .limitations(lims)
     .location(Location::new("path", file.to_string_lossy()))
@@ -527,10 +656,10 @@ fn adb_walkthrough_replay(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     let dir = create_absent_dir(&p.output_directory)?;
     let made = UnlessWritten::new(&dir);
 
-    let w = walk(ctx, &adb, serial, &dir, &steps, &commands, settle, &kept_out)?;
+    let w = walk(ctx, &adb, serial, &dir, &steps, &commands, settle, &kept_out, 0)?;
     let old_captures = doc.get("captures").and_then(Value::as_array).cloned().unwrap_or_default();
     let changes: Vec<Value> = w.captures.iter().enumerate().map(|(k, c)| compare_capture(&old_dir, old_captures.get(k), &dir, c, p.other_app)).collect();
-    let mut out = manifest(doc.get("name").and_then(Value::as_str), serial, settle_ms, &w);
+    let mut out = manifest(doc.get("name").and_then(Value::as_str), None, serial, settle_ms, &w);
     if let Value::Object(m) = &mut out {
         m.insert("replay_of".into(), json!(file));
         m.insert("changes".into(), json!(changes));
@@ -621,9 +750,11 @@ mod tests {
     #[test]
     fn the_file_says_what_it_is_and_whether_it_finished() {
         let w = |stopped| Walk { steps: vec![], captures: vec![json!({"index": 0})], stopped, secrets: 0 };
-        let done = manifest(Some("sign in"), "emulator-5554", 1000, &w(None));
+        let done = manifest(Some("sign in"), None, "emulator-5554", 1000, &w(None));
+        assert!(done.get("by").is_none(), "a field older files don't have is left out unless said");
+        assert_eq!(manifest(None, Some("study"), "emulator-5554", 1000, &w(None))["by"], "study");
         assert_eq!((done["format"].as_str(), done["version"].as_u64(), done["complete"].as_bool()), (Some(FORMAT), Some(1), Some(true)));
-        let cut = manifest(None, "emulator-5554", 1000, &w(Some(json!({"at_step": 2, "reason": "Error: x"}))));
+        let cut = manifest(None, None, "emulator-5554", 1000, &w(Some(json!({"at_step": 2, "reason": "Error: x"}))));
         assert_eq!((cut["complete"].as_bool(), cut["stopped"]["at_step"].as_u64()), (Some(false), Some(2)));
     }
 
@@ -655,6 +786,96 @@ mod tests {
         assert_eq!(ok(json!({"name": "two\nlines"})), ErrorCode::BadInput);
         assert_eq!(ok(json!({"serial": "a b"})), ErrorCode::BadInput);
         assert!(!out.exists(), "nothing is created before the call can run");
+    }
+
+    #[test]
+    fn a_walk_added_to_is_the_file_one_recording_of_all_its_steps_writes() {
+        let tap = |x: u32| json!({"action": "tap", "x": x, "y": 2});
+        let cap = |i: usize, step: Value| json!({"index": i, "step": step, "screenshot": format!("step-{i:02}.png"), "controls": format!("step-{i:02}.json")});
+        let back = json!({"action": "key", "key": "back"});
+        let wait = json!({"action": "wait", "ms": 500});
+        // Recorded in one go: a wait (no capture), a tap, a back.
+        let whole = Walk {
+            steps: vec![wait.clone(), tap(1), back.clone()],
+            captures: vec![cap(0, Value::Null), cap(1, tap(1)), cap(2, back.clone())],
+            stopped: None,
+            secrets: 0,
+        };
+        let one_shot = manifest(Some("first screen"), Some("study"), "emulator-5554", 700, &whole);
+        // The same walk in three calls: the wait, then the tap, then the back.
+        let first = Walk { steps: vec![wait], captures: vec![cap(0, Value::Null)], stopped: None, secrets: 0 };
+        let mut doc = manifest(Some("first screen"), Some("study"), "emulator-5554", 700, &first);
+        for (i, step) in [tap(1), back].into_iter().enumerate() {
+            appendable(&doc, "emulator-5554", 1).unwrap();
+            let more = Walk { steps: vec![step.clone()], captures: vec![cap(i + 1, step)], stopped: None, secrets: 0 };
+            doc = extend_manifest(&doc, 700, &more);
+        }
+        assert_eq!(doc, one_shot);
+        // The replay reads it as it reads any recording.
+        let (steps, _, waits) = saved_steps(&doc, &[]).unwrap();
+        assert_eq!((steps.len(), waits), (3, true));
+
+        // What can't be added to, each refused with BadInput.
+        let refused = |doc: &Value, serial: &str, more: usize| appendable(doc, serial, more).unwrap_err().code;
+        assert_eq!(refused(&one_shot, "emulator-5556", 1), ErrorCode::BadInput, "another device");
+        assert_eq!(refused(&one_shot, "emulator-5554", android_input::MAX_STEPS - 2), ErrorCode::BadInput, "past the step limit");
+        assert!(appendable(&one_shot, "emulator-5554", android_input::MAX_STEPS - 3).is_ok(), "exactly the limit");
+        let patched = |k: &str, v: Value| {
+            let mut d = one_shot.clone();
+            d[k] = v;
+            d
+        };
+        for (k, v) in [
+            ("format", json!("other")),
+            ("version", json!(2)),
+            ("complete", json!(false)),
+            ("replay_of", json!("x/walkthrough.json")),
+            ("captures", json!([])),
+            ("steps", json!("none")),
+        ] {
+            assert_eq!(refused(&patched(k, v), "emulator-5554", 1), ErrorCode::BadInput, "{k}");
+        }
+        // A walk that stopped early while being added to says so, and can't be added to again.
+        let cut = Walk { steps: vec![tap(9)], captures: vec![], stopped: Some(json!({"at_step": 1, "reason": "Error: x"})), secrets: 0 };
+        let stopped = extend_manifest(&one_shot, 700, &cut);
+        assert_eq!((stopped["complete"].as_bool(), stopped["steps"].as_array().map(Vec::len)), (Some(false), Some(4)));
+        assert_eq!(refused(&stopped, "emulator-5554", 1), ErrorCode::BadInput);
+    }
+
+    #[test]
+    fn adding_to_a_walk_is_refused_before_the_device_is_touched() {
+        let (e, d) = engine_with_stand_in_adb();
+        let opts = || CallOptions::new(Caller::Mcp).with_consent(Consent::Granted);
+        let step = json!([{"action": "key", "key": "back"}]);
+        let call = |dir: &Path, extra: Value| {
+            let mut v = json!({"serial": "emulator-5554", "output_directory": dir, "steps": step, "append": true});
+            if let (Value::Object(m), Value::Object(x)) = (&mut v, extra) {
+                m.extend(x);
+            }
+            e.call(WALKTHROUGH_TOOL, v, opts()).unwrap_err().code
+        };
+        // No such folder, and a folder with no walk in it.
+        assert_eq!(call(&d.path().join("missing"), json!({})), ErrorCode::NotFound);
+        let walk = d.path().join("walk");
+        std::fs::create_dir(&walk).unwrap();
+        assert_eq!(call(&walk, json!({})), ErrorCode::NotFound);
+        let write = |doc: &Value| std::fs::write(walk.join("walkthrough.json"), serde_json::to_vec(doc).unwrap()).unwrap();
+        write(&json!({"format": "other", "version": 1}));
+        assert_eq!(call(&walk, json!({})), ErrorCode::BadInput);
+        let good = json!({"format": FORMAT, "version": 1, "serial": "emulator-5554", "complete": true, "steps": [{"action": "wait", "ms": 1}], "captures": [{"index": 0}]});
+        write(&good);
+        assert_eq!(call(&walk, json!({"serial": "emulator-5556"})), ErrorCode::BadInput, "another device");
+        assert_eq!(call(&walk, json!({"name": "again"})), ErrorCode::BadInput, "a name is set on the first recording");
+        assert_eq!(call(&walk, json!({"by": "study"})), ErrorCode::BadInput);
+        assert_eq!(call(Path::new("relative/walk"), json!({})), ErrorCode::BadInput);
+        // `by` is one short word.
+        for bad in ["", "two words", "x/y", &"a".repeat(41)] {
+            let v = json!({"serial": "emulator-5554", "output_directory": d.path().join("new"), "steps": step, "by": bad});
+            assert_eq!(e.call(WALKTHROUGH_TOOL, v, opts()).unwrap_err().code, ErrorCode::BadInput, "{bad:?}");
+        }
+        assert!(!d.path().join("new").exists());
+        // The walk on disk is as it was.
+        assert_eq!(serde_json::from_slice::<Value>(&std::fs::read(walk.join("walkthrough.json")).unwrap()).unwrap(), good);
     }
 
     #[test]
