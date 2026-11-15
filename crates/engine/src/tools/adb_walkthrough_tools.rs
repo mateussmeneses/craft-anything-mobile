@@ -71,7 +71,7 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             REPLAY_TOOL,
             "Replay a walkthrough",
-            "Run a walkthrough saved by adb_walkthrough_record again, on the same app, a rebuild of it or another device, saving new captures the same way, and say for each capture what changed from the recording: the app on screen, and the controls a person can act on that were added or removed (by class, id and label; at most 20 named each way), and whether the picture is byte for byte the same. walkthrough is the saved walkthrough.json (or its folder); texts it kept out are given in secrets, in the order they're typed, and are kept out of the new file too. other_app replays it on another app (a rebuild of the recorded one): the app's name is not compared and controls are matched by kind and label only. output_directory must be absolute and must not exist yet. Changes the device.",
+            "Run a walkthrough saved by adb_walkthrough_record again, on the same app, a rebuild of it or another device, saving new captures the same way, and say for each capture what changed from the recording: the app on screen, the controls a person can act on that were added or removed (by class, id and label; at most 20 named each way), the controls both have that sit somewhere else (`moved`, each with its edges as shares of the screen in the recording and the replay; a screen of another size compares, one of another shape doesn't), and whether the picture is byte for byte the same. walkthrough is the saved walkthrough.json (or its folder); texts it kept out are given in secrets, in the order they're typed, and are kept out of the new file too. other_app replays it on another app (a rebuild of the recorded one): the app's name is not compared and controls are matched by kind and label only. output_directory must be absolute and must not exist yet. Changes the device.",
             "Do a recorded walk through an app again and see which screens came out different.",
             Toolset::Adb,
             Effects::MUTATES_SESSION
@@ -527,24 +527,96 @@ fn saved_steps(doc: &Value, secrets: &[String]) -> Result<(Vec<Step>, Vec<bool>,
     Ok((steps, kept_out, listed.is_some()))
 }
 
-/// The controls a person can act on in a saved controls file, each as class, id and label.
-fn control_names(tree: &Value, with_ids: bool) -> std::collections::BTreeSet<String> {
+/// The controls a person can act on in a saved controls file, each with its name (class, id and
+/// label; class and label without `with_ids`).
+fn acted_on(tree: &Value, with_ids: bool) -> impl Iterator<Item = (String, &Value)> {
     let flag = |n: &Value, k: &str| n.get(k).and_then(Value::as_bool).unwrap_or(false);
     let text = |n: &Value, k: &str| n.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
     tree.get("nodes")
         .and_then(Value::as_array)
-        .map(|nodes| {
-            nodes
-                .iter()
-                .filter(|n| ["clickable", "long_clickable", "checkable", "scrollable", "focusable"].iter().any(|k| flag(n, k)))
-                .map(|n| {
-                    let class = text(n, "class");
-                    let short = class.rsplit('.').next().unwrap_or_default().to_string();
-                    if with_ids { format!("{short} {} \"{}\"", text(n, "resource_id"), text(n, "label")) } else { format!("{short} \"{}\"", text(n, "label")) }
-                })
-                .collect()
+        .into_iter()
+        .flatten()
+        .filter(move |n| ["clickable", "long_clickable", "checkable", "scrollable", "focusable"].iter().any(|k| flag(n, k)))
+        .map(move |n| {
+            let class = text(n, "class");
+            let short = class.rsplit('.').next().unwrap_or_default().to_string();
+            let name =
+                if with_ids { format!("{short} {} \"{}\"", text(n, "resource_id"), text(n, "label")) } else { format!("{short} \"{}\"", text(n, "label")) };
+            (name, n)
         })
-        .unwrap_or_default()
+}
+
+/// The controls a person can act on in a saved controls file, each as class, id and label.
+fn control_names(tree: &Value, with_ids: bool) -> std::collections::BTreeSet<String> {
+    acted_on(tree, with_ids).map(|(name, _)| name).collect()
+}
+
+/// How far an edge of a control may sit from where the recording has it, as a share of the
+/// screen's width or height, and still count as the same place.
+const LAYOUT_TOLERANCE: f64 = 0.04;
+/// How far two screens' width-to-height ratios may differ for their layouts to be compared.
+const ASPECT_TOLERANCE: f64 = 0.02;
+
+/// A PNG's width and height, from its header.
+fn png_size(png: &[u8]) -> Option<(f64, f64)> {
+    if !png.starts_with(b"\x89PNG\r\n\x1a\n") || png.get(12..16) != Some(b"IHDR".as_slice()) {
+        return None;
+    }
+    let number = |at: usize| png.get(at..at.checked_add(4)?).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_be_bytes);
+    let (w, h) = (number(16)?, number(20)?);
+    (w > 0 && h > 0).then(|| (f64::from(w), f64::from(h)))
+}
+
+/// A control's edges in pixels: left, top, right, bottom.
+fn edges(n: &Value) -> Option<[f64; 4]> {
+    let b = n.get("bounds")?;
+    let edge = |k: &str| b.get(k).and_then(Value::as_i64).and_then(|v| i32::try_from(v).ok()).map(f64::from);
+    Some([edge("left")?, edge("top")?, edge("right")?, edge("bottom")?])
+}
+
+/// The screen's size when there is no picture to say: the furthest right and bottom edge of any
+/// control (the root spans the screen).
+fn tree_size(tree: &Value) -> Option<(f64, f64)> {
+    let all = tree.get("nodes").and_then(Value::as_array)?;
+    let (w, h) = all.iter().filter_map(edges).fold((0.0f64, 0.0f64), |(w, h), e| (w.max(e[2]), h.max(e[3])));
+    (w > 0.0 && h > 0.0).then_some((w, h))
+}
+
+/// Where each control a person can act on sits, as shares of the screen (left, top, right,
+/// bottom), by name; several with one name (list rows) are in reading order.
+fn control_places(tree: &Value, with_ids: bool, (w, h): (f64, f64)) -> std::collections::BTreeMap<String, Vec<[f64; 4]>> {
+    let mut places: std::collections::BTreeMap<String, Vec<[f64; 4]>> = std::collections::BTreeMap::new();
+    for (name, n) in acted_on(tree, with_ids) {
+        if let Some(e) = edges(n) {
+            places.entry(name).or_default().push([e[0] / w, e[1] / h, e[2] / w, e[3] / h]);
+        }
+    }
+    for list in places.values_mut() {
+        list.sort_by(|a, b| a[1].total_cmp(&b[1]).then(a[0].total_cmp(&b[0])));
+    }
+    places
+}
+
+/// The controls both captures have that sit somewhere else in the replay, or `None` when the two
+/// layouts can't be compared: a screen's size isn't known, or the screens have different shapes.
+fn compare_layout(old: &Value, new: &Value, with_ids: bool, old_size: Option<(f64, f64)>, new_size: Option<(f64, f64)>) -> Option<Vec<Value>> {
+    let (old_size, new_size) = (old_size?, new_size?);
+    let (a, b) = (old_size.0 / old_size.1, new_size.0 / new_size.1);
+    if ((a - b).abs() / a.max(b)) > ASPECT_TOLERANCE {
+        return None;
+    }
+    let (was, is) = (control_places(old, with_ids, old_size), control_places(new, with_ids, new_size));
+    let round = |e: &[f64; 4]| e.iter().map(|v| (v * 100.0).round() / 100.0).collect::<Vec<f64>>();
+    let mut moved = Vec::new();
+    for (name, before) in &was {
+        // Controls with one name pair up in reading order; ones without a pair are added or removed.
+        for (x, y) in before.iter().zip(is.get(name).into_iter().flatten()) {
+            if x.iter().zip(y).any(|(p, q)| (p - q).abs() > LAYOUT_TOLERANCE) {
+                moved.push(json!({"control": name, "recorded": round(x), "replayed": round(y)}));
+            }
+        }
+    }
+    Some(moved)
 }
 
 /// A file a saved capture names, only if it is a plain name in the walk's own folder.
@@ -569,14 +641,21 @@ fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Va
         (Some(a), Some(b)) => Some(a == b),
         _ => None,
     };
-    let (added, removed, controls_known) = match (tree(old_dir, old), tree(new_dir, new)) {
+    let (old_tree, new_tree) = (tree(old_dir, old), tree(new_dir, new));
+    let (added, removed, controls_known) = match (&old_tree, &new_tree) {
         (Some(a), Some(b)) => {
-            let (a, b) = (control_names(&a, !other_app), control_names(&b, !other_app));
+            let (a, b) = (control_names(a, !other_app), control_names(b, !other_app));
             (b.difference(&a).cloned().collect::<Vec<_>>(), a.difference(&b).cloned().collect::<Vec<_>>(), true)
         }
         _ => (vec![], vec![], false),
     };
     let (old_png, new_png) = (picture(old_dir, old), picture(new_dir, new));
+    // Where the controls both have sit, as shares of each screen, so densities compare.
+    let size = |png: &Option<Vec<u8>>, tree: &Option<Value>| png.as_deref().and_then(png_size).or_else(|| tree.as_ref().and_then(tree_size));
+    let moved = match (&old_tree, &new_tree) {
+        (Some(a), Some(b)) => compare_layout(a, b, !other_app, size(&old_png, &old_tree), size(&new_png, &new_tree)),
+        _ => None,
+    };
     let picture_identical = match (&old_png, &new_png) {
         (Some(a), Some(b)) => Some(a == b),
         _ => None,
@@ -597,6 +676,10 @@ fn compare_capture(old_dir: &Path, old: Option<&Value>, new_dir: &Path, new: &Va
         "controls_removed": removed.len(),
         "added": added.iter().take(MAX_LISTED).collect::<Vec<_>>(),
         "removed": removed.iter().take(MAX_LISTED).collect::<Vec<_>>(),
+        "layout_compared": moved.is_some(),
+        "layout_changed": moved.as_ref().map(|m| !m.is_empty()),
+        "controls_moved": moved.as_ref().map(Vec::len),
+        "moved": moved.iter().flatten().take(MAX_LISTED).collect::<Vec<_>>(),
         "picture_identical": picture_identical,
         "picture_changed": picture_changed,
         "picture": picture,
@@ -680,11 +763,12 @@ fn adb_walkthrough_replay(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     }
     lims.push(Limitation::new(
         "how_compared",
-        "A capture counts as changed when its app or the controls a person can act on differ. Pictures are compared pixel by pixel apart from the top 6% (the status bar): a picture counts as changed when over 1% of its pixels differ by more than 24 in a channel, so animations or a changed clock elsewhere can still count."
+        format!("A capture counts as changed when its app or the controls a person can act on differ. Where the controls both have sit is compared apart (layout_changed): each edge as a share of its screen's width or height, moved when it is more than {:.0}% away; not compared (layout_compared false) when a screen's size isn't known or the two screens' shapes differ by more than {:.0}%. Pictures are compared pixel by pixel apart from the top 6% (the status bar): a picture counts as changed when over 1% of its pixels differ by more than 24 in a channel, so animations or a changed clock elsewhere can still count.", LAYOUT_TOLERANCE * 100.0, ASPECT_TOLERANCE * 100.0),
     ));
+    let moved = changes.iter().filter(|c| c["layout_changed"].as_bool() == Some(true)).count();
     let pictures = changes.iter().filter(|c| c["picture_changed"].as_bool() == Some(true)).count();
     let summary = format!(
-        "Replayed {} step(s): {changed} of {} capture(s) differ from the recording, {pictures} picture(s) look different. Saved to {}.",
+        "Replayed {} step(s): {changed} of {} capture(s) differ from the recording, {moved} have controls in other places, {pictures} picture(s) look different. Saved to {}.",
         steps.len(),
         changes.len(),
         dir.display()
@@ -699,7 +783,7 @@ fn adb_walkthrough_replay(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         serial,
         json!({"serial": serial, "walkthrough": file, "output_directory": dir, "secrets": p.secrets.len(), "settle_ms": settle_ms}),
     )
-    .result(json!({"file": new_file, "replay_of": file, "complete": w.stopped.is_none(), "stopped": w.stopped, "changed": changed, "pictures_changed": pictures, "changes": changes}))
+    .result(json!({"file": new_file, "replay_of": file, "complete": w.stopped.is_none(), "stopped": w.stopped, "changed": changed, "layouts_changed": moved, "pictures_changed": pictures, "changes": changes}))
     .summary(summary)
     .limitations(lims)
     .location(Location::new("path", new_file.to_string_lossy()))
@@ -926,6 +1010,76 @@ mod tests {
         // A name pointing outside the walk's folder is not followed.
         let outside = json!({"index": 1, "controls": "../step-01.json", "package": "app"});
         assert_eq!(compare_capture(a.path(), Some(&outside), a.path(), &outside, false)["controls_compared"].as_bool(), Some(false));
+    }
+
+    /// A capture folder with one controls file and a picture header that says the screen's size.
+    fn layout_capture(dir: &Path, size: Option<(u32, u32)>, controls: &[(&str, [i64; 4])]) -> Value {
+        let nodes: Vec<Value> = controls
+            .iter()
+            .map(|(label, b)| json!({"class": "android.widget.Button", "resource_id": "", "label": label, "clickable": true, "bounds": {"left": b[0], "top": b[1], "right": b[2], "bottom": b[3]}}))
+            .collect();
+        std::fs::write(dir.join("step-01.json"), serde_json::to_vec(&json!({"nodes": nodes})).unwrap()).unwrap();
+        if let Some((w, h)) = size {
+            let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+            png.extend(w.to_be_bytes());
+            png.extend(h.to_be_bytes());
+            std::fs::write(dir.join("step-01.png"), png).unwrap();
+        }
+        json!({"index": 1, "controls": "step-01.json", "screenshot": size.map(|_| "step-01.png"), "package": "app"})
+    }
+
+    #[test]
+    fn controls_both_have_are_compared_by_where_they_sit_on_the_screen() {
+        let dir = || tempfile::tempdir().unwrap();
+        // The recording: 1080 x 2400, Save near the bottom, two rows with one label.
+        let (a, b) = (dir(), dir());
+        let recorded =
+            layout_capture(a.path(), Some((1080, 2400)), &[("Save", [108, 1920, 972, 2160]), ("Row", [0, 240, 1080, 480]), ("Row", [0, 480, 1080, 720])]);
+        // The same layout on a 720 x 1600 screen (the same shape): nothing moved.
+        let scaled = layout_capture(b.path(), Some((720, 1600)), &[("Save", [72, 1280, 648, 1440]), ("Row", [0, 320, 720, 480]), ("Row", [0, 160, 720, 320])]);
+        let c = compare_capture(a.path(), Some(&recorded), b.path(), &scaled, true);
+        assert_eq!(
+            (c["layout_compared"].as_bool(), c["layout_changed"].as_bool(), c["controls_moved"].as_u64(), c["changed"].as_bool()),
+            (Some(true), Some(false), Some(0), Some(false)),
+            "{c}"
+        );
+
+        // Within the tolerance (3% lower) is the same place; beyond it (Save at the top) is moved.
+        let b = dir();
+        let near =
+            layout_capture(b.path(), Some((1080, 2400)), &[("Save", [108, 1992, 972, 2232]), ("Row", [0, 240, 1080, 480]), ("Row", [0, 480, 1080, 720])]);
+        assert_eq!(compare_capture(a.path(), Some(&recorded), b.path(), &near, true)["controls_moved"].as_u64(), Some(0));
+        let b = dir();
+        let far = layout_capture(b.path(), Some((1080, 2400)), &[("Save", [108, 240, 972, 480]), ("Row", [0, 480, 1080, 720]), ("Row", [0, 720, 1080, 960])]);
+        let c = compare_capture(a.path(), Some(&recorded), b.path(), &far, true);
+        // The same controls, so `changed` keeps its meaning; the layout says what moved.
+        assert_eq!((c["changed"].as_bool(), c["layout_changed"].as_bool(), c["controls_moved"].as_u64()), (Some(false), Some(true), Some(3)), "{c}");
+        let save = c["moved"].as_array().unwrap().iter().find(|m| m["control"] == "Button \"Save\"").unwrap();
+        assert_eq!((save["recorded"].clone(), save["replayed"].clone()), (json!([0.1, 0.8, 0.9, 0.9]), json!([0.1, 0.1, 0.9, 0.2])));
+
+        // A screen of another shape isn't compared, and neither is one whose size isn't known.
+        let b = dir();
+        let wide = layout_capture(b.path(), Some((1600, 1200)), &[("Save", [108, 1920, 972, 2160])]);
+        let c = compare_capture(a.path(), Some(&recorded), b.path(), &wide, true);
+        assert_eq!((c["layout_compared"].as_bool(), c["layout_changed"].is_null(), c["controls_moved"].is_null()), (Some(false), true, true), "{c}");
+        let b = dir();
+        std::fs::write(b.path().join("step-01.json"), b"{\"nodes\": [{\"class\": \"android.widget.Button\", \"label\": \"Save\", \"clickable\": true}]}")
+            .unwrap();
+        let no_size = json!({"index": 1, "controls": "step-01.json", "package": "app"});
+        assert_eq!(compare_capture(a.path(), Some(&recorded), b.path(), &no_size, true)["layout_compared"].as_bool(), Some(false));
+
+        // Without a picture the furthest edges say the size: the same answer as with one.
+        let (a2, b2) = (dir(), dir());
+        let full = [("Root", [0, 0, 1080, 2400]), ("Save", [108, 1920, 972, 2160])];
+        let old = layout_capture(a2.path(), None, &full);
+        let new = layout_capture(b2.path(), None, &[("Root", [0, 0, 1080, 2400]), ("Save", [108, 240, 972, 480])]);
+        let c = compare_capture(a2.path(), Some(&old), b2.path(), &new, true);
+        assert_eq!((c["layout_compared"].as_bool(), c["controls_moved"].as_u64()), (Some(true), Some(1)), "{c}");
+
+        // Hostile numbers and headers are no size, never a panic.
+        assert_eq!(png_size(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0"), None);
+        assert_eq!(png_size(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\0\0\0\0\x01"), None);
+        assert_eq!(tree_size(&json!({"nodes": [{"bounds": {"left": 0, "top": 0, "right": i64::MAX, "bottom": 5}}]})), None);
     }
 
     #[test]
