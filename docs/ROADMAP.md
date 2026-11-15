@@ -2868,8 +2868,26 @@ Owner: open · Status: in progress
       by role, text and bounds, each difference said as something to fix (`ScreenCheck`, with
       `adb_walkthrough_replay` `other_app`: controls by kind and label, a screen's likeness is the
       share of screens with the same controls; bounds are not compared yet)
-- [ ] Record the original's walk during the study (today it must be put in
-      capture/android-walkthrough/ with adb_walkthrough_record), and compare bounds
+- [x] Record the original's walk during the study (today it must be put in
+      capture/android-walkthrough/ with adb_walkthrough_record), and compare bounds: with Run to
+      study on and a single APK target, the study installs it on the checks' device (a phone only
+      when it is the default or the only device), tells its package from the device's app list
+      (Clean room) or the manifest (Deep), walks its first screen with the planner
+      (`engines::android_walk`) through `adb_walkthrough_record` `append`, and keeps the walk as
+      `by: study` (a person's walk is never replaced). The replay compares where controls sit (edges
+      as shares of the screen, 4% tolerance; another screen shape isn't compared), and `ScreenCheck`
+      counts a screen alike only with the same controls in the same places
+- [ ] Run the study walk live on the emulator (design section 5: a Flutter counter APK in Clean room
+      with no emulator running, an app already installed, a share button and a sign-in screen, a
+      rebuild with a moved button and one at another density, a stop during the walk); not yet
+      verified
+- [ ] The study walk for split sets, `.xapk` and `.aab` targets (`adb_app_install` takes one APK)
+- [ ] Steps chosen by the studying AI through `adb_walkthrough_record` `append` (an extractor-style
+      turn with its own token budget), to reach screens deeper than one tap from the first
+- [ ] Save the screen size in a walk and scale taps per device, so a walk replays on a device of
+      another size (today the replay device must have the recording's shape)
+- [ ] `pm clear` the rebuild's own package before each replay, so every replay starts from the same
+      state
 - [x] Run `ScreenCheck` live on a rebuild and its original (the same run, continued with a 3-tap walk
       recorded on the original: all 4 screens alike, 0 to 3)
 - [ ] The same check on more than one device profile
