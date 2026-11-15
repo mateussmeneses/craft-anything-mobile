@@ -13,9 +13,9 @@ use super::native_common::spec;
 use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
 use craft_anything_engines::adb::{self, Adb};
 use craft_anything_engines::android_sdk;
-use craft_anything_engines::emulator::{self, StartOptions};
+use craft_anything_engines::emulator::{self, BootPhase, BootWatch, StartOptions, Verdict};
 use craft_anything_evidence::{Authority, Confidence, Coverage, Environment, ErrorCode, EvidenceBuilder, Limitation, Location, Subject, ToolError};
-use craft_anything_platform::process::{Cancel, Launch};
+use craft_anything_platform::process::{Cancel, Launch, Launched};
 use craft_anything_platform::sync::Mutex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             START_TOOL,
             "Start a virtual device",
-            "Start an Android virtual device by name with the SDK's emulator and wait until it has finished booting (`sys.boot_completed`), up to wait_seconds (default 240, at most 900). Returns its adb serial. A device that is already running is not started again. The emulator keeps running after this returns; stop it with adb_emulator_stop. no_window runs it without a window; cold_boot ignores the saved quick-boot state.",
+            "Start an Android virtual device by name with the SDK's emulator and wait until it has finished booting (`sys.boot_completed`), up to wait_seconds (default 240, at most 900). Returns its adb serial. A device that is already running is not started again. The emulator keeps running after this returns; stop it with adb_emulator_stop. no_window runs it without a window; cold_boot ignores the saved quick-boot state. The result's boot_phase says whether adb never listed the device, listed it offline, or listed it booting. A device that stays offline for 90 s is stopped and started once more with a cold boot (cold_retry true); if that also stays offline the call fails.",
             "Switch on a virtual Android phone and wait until it is ready.",
             Adb,
             read | Effects::WRITES_FILESYSTEM,
@@ -129,6 +129,13 @@ struct Running {
     name: Option<String>,
     /// Whether it has finished booting; `None` when it couldn't be asked.
     booted: Option<bool>,
+}
+
+impl Running {
+    /// Whether adb can talk to it (its state is `device`).
+    fn online(&self) -> bool {
+        self.state == "device"
+    }
 }
 
 fn cancel_of(ctx: &Ctx<'_>) -> Cancel {
@@ -278,7 +285,11 @@ pub(crate) struct Started {
     /// The serial it runs as; `None` when it never appeared in adb within the wait.
     pub serial: Option<String>,
     pub booted: bool,
+    /// Where the device stood when the wait ended.
+    pub phase: BootPhase,
     pub already_running: bool,
+    /// The first start stayed offline, so it was stopped and started again with a cold boot.
+    pub cold_retry: bool,
     pub waited_seconds: u64,
     pub program: PathBuf,
     /// The emulator's arguments; `None` when it was already running.
@@ -314,60 +325,108 @@ pub(crate) fn start_emulator(ctx: &mut Ctx<'_>, name: &str, options: StartOption
         }
     }
 
-    let args = emulator::start_args(name, options);
+    let mut options = options;
+    let mut args = emulator::start_args(name, options);
     let before = running(&adb)?;
+    let before_serials: Vec<String> = before.iter().map(|r| r.serial.clone()).collect();
     let already = before.iter().find(|r| r.name.as_deref() == Some(name)).cloned();
     let started = Instant::now();
-    let (launched, log) = match &already {
-        Some(_) => (None, None),
+    let log = ctx.session.config_dir().join("logs").join(format!("emulator-{name}.log"));
+    let launch = |ctx: &mut Ctx<'_>, args: &[String]| -> Result<Launched, ToolError> {
+        let dir = ctx.session.config_dir().join("logs");
+        std::fs::create_dir_all(&dir).map_err(|e| ToolError::io(dir.display(), e))?;
+        Launch::new(&program)
+            .args(args)
+            .hide_console()
+            .log_to(&log)
+            .label("the Android emulator")
+            .remediation("Reinstall the Android Emulator from Android Studio's SDK Manager.")
+            .start_watched()
+    };
+    let mut launched = match &already {
+        Some(_) => None,
         None => {
-            let dir = ctx.session.config_dir().join("logs");
-            std::fs::create_dir_all(&dir).map_err(|e| ToolError::io(dir.display(), e))?;
-            let log = dir.join(format!("emulator-{name}.log"));
             ctx.report(None, format!("Starting the virtual device {name}…"));
-            let launched = Launch::new(&program)
-                .args(&args)
-                .hide_console()
-                .log_to(&log)
-                .label("the Android emulator")
-                .remediation("Reinstall the Android Emulator from Android Studio's SDK Manager.")
-                .start_watched()?;
-            (Some(launched), Some(log))
+            Some(launch(ctx, &args)?)
         }
     };
 
-    // Wait for the device to appear in adb under this name, then for its boot to finish.
-    let deadline = started + Duration::from_secs(u64::from(wait));
+    // Wait for the device to appear in adb under this name, then for its boot to finish. A device
+    // that stays offline is given up on early: a cold boot is tried once, then it is an error.
+    let mut wait_d = Duration::from_secs(u64::from(wait));
+    let mut attempt = Instant::now();
+    let mut watch = BootWatch::default();
+    let mut cold_retry = false;
     let mut seen = already.clone();
     loop {
         ctx.cancel.check()?;
-        if let Some(r) = &seen
-            && r.booted == Some(true)
-        {
-            break;
+        let at = attempt.elapsed();
+        match watch.look(at, emulator::boot_phase(seen.as_ref().map(|r| (r.online(), r.booted))), wait_d) {
+            Verdict::Booted | Verdict::TimedOut(_) => break,
+            Verdict::StuckOffline => {
+                let serial = seen.as_ref().map(|r| r.serial.clone()).unwrap_or_default();
+                let offline_s = at.as_secs();
+                let Some(l) = &launched else {
+                    return Err(ToolError::new(
+                        ErrorCode::ProgramFailed,
+                        format!("{name} is listed in adb as {serial} but has stayed offline for {offline_s} s, so it will not finish booting."),
+                    )
+                    .with_remediation(format!("Stop it with adb_emulator_stop (serial {serial}) and start it again with cold_boot true.")));
+                };
+                ctx.report(None, format!("{name} stayed offline for {offline_s} s; stopping it."));
+                end_emulator(ctx, &adb, l, &serial)?;
+                if options.cold_boot {
+                    return Err(ToolError::new(
+                        ErrorCode::ProgramFailed,
+                        format!("{name} stayed offline in adb for {offline_s} s even after a cold boot; the emulator was stopped."),
+                    )
+                    .with_remediation(format!(
+                        "Its log is {}. Check that the virtual device's disk and system image are intact (Android Studio's Device Manager can wipe its data), then start it again.",
+                        log.display()
+                    )));
+                }
+                // The saved quick-boot state is the usual cause: start again without loading it.
+                ctx.report(None, format!("Starting {name} again with a cold boot…"));
+                options.cold_boot = true;
+                cold_retry = true;
+                args = emulator::start_args(name, options);
+                launched = Some(launch(ctx, &args)?);
+                wait_d = emulator::cold_retry_budget(Duration::from_secs(u64::from(wait)), started.elapsed());
+                attempt = Instant::now();
+                watch = BootWatch::default();
+                seen = None;
+                continue;
+            }
+            Verdict::Continue => {}
         }
         // A launcher that gave up says why in its log; one that handed the device to another
         // process and left with code 0 is still starting.
-        if let (Some(l), Some(log)) = (&launched, &log)
+        if let Some(l) = &launched
             && let Some(ended) = l.ended()
             && ended.code != Some(0)
             && seen.is_none()
         {
             let code = ended.code.map_or_else(|| "it was stopped".to_string(), |c| format!("exit code {c}"));
-            let said = log_tail(log);
+            let said = log_tail(&log);
             let said = if said.is_empty() { String::new() } else { format!(" It printed:\n{said}") };
             return Err(ToolError::new(ErrorCode::ProgramFailed, format!("The Android emulator closed before {name} started ({code}).{said}"))
                 .with_remediation(format!("Its whole output is in {}.", log.display())));
         }
-        if Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(POLL.min(deadline.saturating_duration_since(Instant::now())));
+        std::thread::sleep(POLL.min(wait_d.saturating_sub(attempt.elapsed())));
         // adb may be restarting its server while the emulator registers; a failed look is tried again.
         if let Ok(now) = running(&adb) {
-            seen = now.into_iter().find(|r| r.name.as_deref() == Some(name)).or(seen.filter(|_| false));
+            seen = pick_ours(&now, &before_serials, name, launched.is_some());
             if let Some(r) = &seen {
-                ctx.report(None, if r.booted == Some(true) { format!("{name} is ready.") } else { format!("{name} is booting as {}…", r.serial) });
+                ctx.report(
+                    None,
+                    if r.booted == Some(true) {
+                        format!("{name} is ready.")
+                    } else if !r.online() {
+                        format!("{name} is listed as {} ({})…", r.serial, r.state)
+                    } else {
+                        format!("{name} is booting as {}…", r.serial)
+                    },
+                );
             }
         }
     }
@@ -382,13 +441,47 @@ pub(crate) fn start_emulator(ctx: &mut Ctx<'_>, name: &str, options: StartOption
     Ok(Started {
         serial: seen.as_ref().map(|r| r.serial.clone()),
         booted: seen.as_ref().is_some_and(|r| r.booted == Some(true)),
+        phase: emulator::boot_phase(seen.as_ref().map(|r| (r.online(), r.booted))),
         already_running: already.is_some(),
+        cold_retry,
         waited_seconds: started.elapsed().as_secs(),
         program,
         args: if already.is_some() { None } else { Some(args) },
         pid: launched.as_ref().map(|l| l.pid()),
-        log,
+        log: launched.as_ref().map(|_| log),
     })
+}
+
+/// The emulator in `now` that is the one being waited for: the one running `name`, or, for an
+/// emulator this call launched, a new one adb lists but cannot talk to (an offline device can't
+/// be asked its name, so it can't be told apart by name).
+fn pick_ours(now: &[Running], before: &[String], name: &str, launched: bool) -> Option<Running> {
+    let by_name = now.iter().find(|r| r.name.as_deref() == Some(name));
+    let new_offline = || now.iter().find(|r| launched && r.name.is_none() && !r.online() && !before.contains(&r.serial));
+    by_name.or_else(new_offline).cloned()
+}
+
+/// End an emulator this call started and wait until adb no longer lists `serial`, so a second
+/// start doesn't meet the first. The console is asked first (it answers while adb calls the device
+/// offline), then the launcher is stopped.
+fn end_emulator(ctx: &mut Ctx<'_>, adb: &Adb, launched: &Launched, serial: &str) -> Result<(), ToolError> {
+    if emulator::is_emulator_serial(serial) {
+        let _ = adb.targeted(serial, ["emu", "kill"]);
+    }
+    launched.stop();
+    let started = Instant::now();
+    while started.elapsed() < STOP_WAIT {
+        ctx.cancel.check()?;
+        if adb.devices().is_ok_and(|d| !d.iter().any(|d| d.serial == serial)) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Err(ToolError::new(
+        ErrorCode::ProgramFailed,
+        format!("{serial} stayed offline and was still listed in adb {} s after it was asked to stop.", STOP_WAIT.as_secs()),
+    )
+    .with_remediation("Close the emulator's window or end its process, then start the device again with cold_boot true."))
 }
 
 fn adb_emulator_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
@@ -405,20 +498,31 @@ fn adb_emulator_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
     if !s.already_running {
         lims.push(Limitation::new("keeps_running", "The emulator keeps running after this call; stop it with adb_emulator_stop."));
     }
+    if s.cold_retry {
+        lims.push(Limitation::new(
+            "cold_boot_retry",
+            "The first start stayed offline in adb, so it was stopped and started again with a cold boot (the saved quick-boot state was not loaded).",
+        ));
+    }
     if !s.booted {
         lims.push(Limitation::new(
             "boot_not_seen",
-            match &s.serial {
-                Some(serial) => format!("{serial} did not report a finished boot within {wait} s; it may still be starting."),
-                None => format!("No emulator named {name} appeared in adb within {wait} s; it may still be starting."),
+            match (&s.serial, s.phase) {
+                (Some(serial), BootPhase::Offline) => {
+                    format!("{serial} was listed in adb as offline for the whole wait of {wait} s; start it again with cold_boot true.")
+                }
+                (Some(serial), _) => format!("{serial} did not report a finished boot within {wait} s; it may still be starting."),
+                (None, _) => format!("No emulator named {name} appeared in adb within {wait} s; it may still be starting."),
             },
         ));
     }
-    let summary = match (&s.serial, s.booted, s.already_running) {
-        (Some(serial), true, true) => format!("{name} was already running as {serial}."),
-        (Some(serial), true, false) => format!("Started {name} as {serial}; it booted in {waited} s."),
-        (Some(serial), false, _) => format!("{name} is running as {serial} but had not finished booting after {waited} s."),
-        (None, _, _) => format!("The emulator was started, but {name} had not appeared in adb after {waited} s."),
+    let retried = if s.cold_retry { " after a cold-boot retry" } else { "" };
+    let summary = match (&s.serial, s.booted, s.already_running, s.phase) {
+        (Some(serial), true, true, _) => format!("{name} was already running as {serial}."),
+        (Some(serial), true, false, _) => format!("Started {name} as {serial}{retried}; it booted in {waited} s."),
+        (Some(serial), false, _, BootPhase::Offline) => format!("{name} is listed as {serial} but was still offline in adb after {waited} s."),
+        (Some(serial), false, _, _) => format!("{name} is running as {serial} but had not finished booting after {waited} s."),
+        (None, _, _, _) => format!("The emulator was started, but {name} had not appeared in adb after {waited} s."),
     };
     let subject = Subject { kind: "device".into(), sha256: None, name: Some(s.serial.clone().unwrap_or_else(|| name.clone())) };
     let e = EvidenceBuilder::new(START_TOOL, subject, env(ctx))
@@ -429,6 +533,8 @@ fn adb_emulator_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
             "name": name,
             "serial": s.serial,
             "booted": s.booted,
+            "boot_phase": s.phase,
+            "cold_retry": s.cold_retry,
             "already_running": s.already_running,
             "waited_seconds": waited,
             "program": s.program,
@@ -592,6 +698,24 @@ mod tests {
         assert!(err.message.contains("Nope"), "{}", err.message);
         assert!(!e.session().config_dir().join("logs").join("emulator-Nope.log").exists(), "no emulator was started");
         drop(sdk);
+    }
+
+    fn seen(serial: &str, state: &str, name: Option<&str>) -> Running {
+        Running { serial: serial.into(), state: state.into(), name: name.map(Into::into), booted: None }
+    }
+
+    #[test]
+    fn an_offline_emulator_this_call_launched_is_the_one_waited_for() {
+        let before = vec!["emulator-5554".to_string()];
+        let now = [seen("emulator-5554", "device", Some("Other")), seen("emulator-5556", "offline", None)];
+        assert_eq!(pick_ours(&now, &before, "Phone", true).map(|r| r.serial), Some("emulator-5556".into()));
+        assert_eq!(pick_ours(&now, &before, "Phone", false).map(|r| r.serial), None, "not launched here: only a name matches");
+        // One that was already listed before the launch is not ours, nor is an online one with no name.
+        let old = [seen("emulator-5554", "offline", None), seen("emulator-5556", "device", None)];
+        assert_eq!(pick_ours(&old, &before, "Phone", true).map(|r| r.serial), None);
+        // The name wins over a newcomer.
+        let named = [seen("emulator-5556", "offline", None), seen("emulator-5558", "device", Some("Phone"))];
+        assert_eq!(pick_ours(&named, &before, "Phone", true).map(|r| r.serial), Some("emulator-5558".into()));
     }
 
     #[test]

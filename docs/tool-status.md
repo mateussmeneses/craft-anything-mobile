@@ -198,6 +198,10 @@ Fixed:
   consent and stop of a phone's serial were refused; after stop adb listed no device and no
   emulator process was left. Not checked: macOS, Linux, a windowed start, `cold_boot`, a boot
   that outlasts the wait, or an emulator that fails to start (fixtures cover the refusals only).
+  New behaviour, unverified live: the wait tells never listed, offline and booting apart
+  (`boot_phase`), gives up on a device offline for 90 s, stops it and starts once more with a cold
+  boot (`cold_retry`), and fails with a cold-boot remedy if that stays offline too. Only the
+  decision logic and the choice of which listed emulator is ours are tested (no device).
 - Default device (`adb_default_device_set`): **New**. Run on Windows 11 on 2026-11-13 from the
   CLI: setting `Medium_Phone` wrote `android-devices.json` (version 1, `{"avd": …}`), Play then
   used it (`device_how: default`), `adb_devices_find` showed it, a name with a space was refused

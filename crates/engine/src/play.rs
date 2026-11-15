@@ -79,6 +79,10 @@ fn start_device(ctx: &mut Ctx<'_>, avd: &str, no_window: bool) -> Result<String,
     let s = start_emulator(ctx, avd, options, DEFAULT_WAIT_SECS, None)?;
     match (s.serial, s.booted) {
         (Some(serial), true) => Ok(serial),
+        (Some(serial), false) if s.phase == craft_anything_engines::emulator::BootPhase::Offline => {
+            Err(ToolError::new(ErrorCode::TimedOut, format!("{avd} is listed as {serial} but was still offline in adb after {} s.", s.waited_seconds))
+                .with_remediation("Stop it (adb_emulator_stop), start it again with cold_boot true, then play again."))
+        }
         (Some(serial), false) => {
             Err(ToolError::new(ErrorCode::TimedOut, format!("{avd} is running as {serial} but had not finished booting after {} s.", s.waited_seconds))
                 .with_remediation("Wait for it to finish starting, then play again."))

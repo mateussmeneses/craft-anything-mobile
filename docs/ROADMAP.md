@@ -2815,11 +2815,15 @@ Owner: open · Status: todo
 - [x] Verify the three that were left: `adb_app_install` and `adb_app_remove` (with an APK we built
       ourselves, a Flutter app) and `adb_bugreport_save`; run on an emulator on 2026-11-13
 - [ ] Run the adb tools on a physical phone (every adb tool has run on an emulator only)
-- [ ] `adb_emulator_start` with a saved quick-boot snapshot: the device stayed `offline` in adb for
+- [x] `adb_emulator_start` with a saved quick-boot snapshot: the device stayed `offline` in adb for
       the whole 600 s wait and the tool said it "had not appeared in adb" and "may still be
-      starting"; a cold boot of the same device took 26 s. Tell `offline` apart from absent in the
-      answer, give up sooner on a device that stays `offline`, and offer a cold boot. Why the
-      snapshot hung was not investigated
+      starting"; a cold boot of the same device took 26 s. Built: the wait tells never listed,
+      offline and booting apart (`boot_phase`), gives up on a device offline for 90 s, stops it
+      and starts once more with a cold boot (`cold_retry`), and otherwise fails naming the cold
+      boot as the remedy; `cold_boot` already existed. Decision logic is tested without a device;
+      not run live
+- [ ] Why a quick-boot snapshot leaves the emulator `offline` in adb was not investigated (the
+      cold-boot retry works around it); and the new wait has not run against a real stuck device
 
 ### R6.4 Android apps as a kind to make
 Owner: maintainers · Status: in progress

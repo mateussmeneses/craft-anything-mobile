@@ -7,7 +7,9 @@
 
 use crate::android_sdk::Sdk;
 use craft_anything_evidence::ToolError;
+use serde::Serialize;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Longest virtual device name accepted.
 pub const MAX_NAME: usize = 128;
@@ -70,10 +72,139 @@ pub fn boot_completed(getprop_output: &str) -> bool {
     getprop_output.trim() == "1"
 }
 
+/// How long a started emulator may stay `offline` in adb before the wait gives up on it. A healthy
+/// boot lists the device as offline for seconds; one resumed from a broken quick-boot snapshot
+/// stayed offline for ten minutes (a cold boot of the same device took 26 s).
+pub const OFFLINE_LIMIT: Duration = Duration::from_secs(90);
+
+/// The least a cold-boot retry is given to boot, however little of the caller's wait was left.
+pub const COLD_RETRY_MIN: Duration = Duration::from_secs(120);
+
+/// Where a device being waited for stands, as far as adb says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BootPhase {
+    /// adb has never listed it.
+    NeverListed,
+    /// Listed, but not online (`offline` and the like): adb can't talk to it.
+    Offline,
+    /// Online, and `sys.boot_completed` isn't `1` yet (or it couldn't be asked).
+    Booting,
+    /// Online and finished booting.
+    Booted,
+}
+
+/// The phase of one look at the device: `None` when adb doesn't list it, otherwise whether it is
+/// online and what `sys.boot_completed` said.
+pub fn boot_phase(listed: Option<(bool, Option<bool>)>) -> BootPhase {
+    match listed {
+        None => BootPhase::NeverListed,
+        Some((false, _)) => BootPhase::Offline,
+        Some((true, Some(true))) => BootPhase::Booted,
+        Some((true, _)) => BootPhase::Booting,
+    }
+}
+
+/// What the wait does after a look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    Continue,
+    /// It finished booting.
+    Booted,
+    /// The wait ran out; `phase` is where the device was.
+    TimedOut(BootPhase),
+    /// It stayed offline for [`OFFLINE_LIMIT`]: more waiting won't help.
+    StuckOffline,
+}
+
+/// Decides, from looks at a starting device, when to stop waiting. Time is given, never read, so a
+/// test needs no device and no clock.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BootWatch {
+    offline_since: Option<Duration>,
+}
+
+impl BootWatch {
+    /// The verdict after a look at `at` (time since the start) when the device was in `phase`; the
+    /// whole wait is `wait`.
+    pub fn look(&mut self, at: Duration, phase: BootPhase, wait: Duration) -> Verdict {
+        if phase == BootPhase::Offline {
+            let since = *self.offline_since.get_or_insert(at);
+            if at.saturating_sub(since) >= OFFLINE_LIMIT {
+                return Verdict::StuckOffline;
+            }
+        } else {
+            self.offline_since = None;
+        }
+        match phase {
+            BootPhase::Booted => Verdict::Booted,
+            _ if at >= wait => Verdict::TimedOut(phase),
+            _ => Verdict::Continue,
+        }
+    }
+}
+
+/// The time a cold-boot retry gets after `elapsed` of a `wait`: what is left, but not less than
+/// [`COLD_RETRY_MIN`].
+pub fn cold_retry_budget(wait: Duration, elapsed: Duration) -> Duration {
+    wait.saturating_sub(elapsed).max(COLD_RETRY_MIN)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::android_sdk::{self, RootSource};
+
+    fn secs(n: u64) -> Duration {
+        Duration::from_secs(n)
+    }
+
+    #[test]
+    fn the_phase_tells_never_listed_from_offline_from_booting() {
+        assert_eq!(boot_phase(None), BootPhase::NeverListed);
+        assert_eq!(boot_phase(Some((false, None))), BootPhase::Offline);
+        assert_eq!(boot_phase(Some((false, Some(true)))), BootPhase::Offline, "an offline device can't be booted");
+        assert_eq!(boot_phase(Some((true, None))), BootPhase::Booting);
+        assert_eq!(boot_phase(Some((true, Some(false)))), BootPhase::Booting);
+        assert_eq!(boot_phase(Some((true, Some(true)))), BootPhase::Booted);
+    }
+
+    #[test]
+    fn a_device_that_stays_offline_is_given_up_on_long_before_the_wait_ends() {
+        let mut w = BootWatch::default();
+        assert_eq!(w.look(secs(2), BootPhase::Offline, secs(600)), Verdict::Continue);
+        assert_eq!(w.look(secs(2) + OFFLINE_LIMIT - secs(1), BootPhase::Offline, secs(600)), Verdict::Continue);
+        assert_eq!(w.look(secs(2) + OFFLINE_LIMIT, BootPhase::Offline, secs(600)), Verdict::StuckOffline);
+    }
+
+    #[test]
+    fn offline_time_starts_over_when_the_device_comes_online_or_goes_missing() {
+        let mut w = BootWatch::default();
+        assert_eq!(w.look(secs(0), BootPhase::Offline, secs(600)), Verdict::Continue);
+        assert_eq!(w.look(secs(80), BootPhase::Booting, secs(600)), Verdict::Continue);
+        assert_eq!(w.look(secs(100), BootPhase::Offline, secs(600)), Verdict::Continue, "20 s of offline, not 100");
+        assert_eq!(w.look(secs(150), BootPhase::NeverListed, secs(600)), Verdict::Continue);
+        assert_eq!(w.look(secs(200), BootPhase::Offline, secs(600)), Verdict::Continue);
+    }
+
+    #[test]
+    fn the_wait_ends_booted_or_timed_out_with_the_phase_it_reached() {
+        let mut w = BootWatch::default();
+        assert_eq!(w.look(secs(5), BootPhase::Booted, secs(240)), Verdict::Booted);
+        assert_eq!(BootWatch::default().look(secs(240), BootPhase::NeverListed, secs(240)), Verdict::TimedOut(BootPhase::NeverListed));
+        assert_eq!(BootWatch::default().look(secs(240), BootPhase::Booting, secs(240)), Verdict::TimedOut(BootPhase::Booting));
+        assert_eq!(BootWatch::default().look(secs(239), BootPhase::Booting, secs(240)), Verdict::Continue);
+        // A short wait ends before the offline limit does.
+        assert_eq!(BootWatch::default().look(secs(30), BootPhase::Offline, secs(30)), Verdict::TimedOut(BootPhase::Offline));
+    }
+
+    #[test]
+    fn a_cold_retry_gets_what_is_left_but_never_too_little() {
+        assert_eq!(cold_retry_budget(secs(600), secs(100)), secs(500));
+        assert_eq!(cold_retry_budget(secs(240), secs(100)), secs(140));
+        assert_eq!(cold_retry_budget(secs(240), secs(200)), COLD_RETRY_MIN);
+        assert_eq!(cold_retry_budget(secs(60), secs(90)), COLD_RETRY_MIN);
+    }
 
     #[test]
     fn names_that_could_change_a_command_line_are_refused() {
